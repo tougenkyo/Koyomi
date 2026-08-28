@@ -1,0 +1,60 @@
+# --- 解析対象の配布物 ---------------------------------------------------
+# 他者の著作物なので絶対にコミットしない
+*.apk
+*.xapk
+*.aab
+
+# --- Python -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- 仮想環境 -----------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# --- テスト・型・リンタの作業物 ----------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# --- エディタ・OS -------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- 実行時に生成されるもの --------------------------------------------
+# 内蔵音・アイコン・保存データは %APPDATA%\Koyomi に作られるため
+# 通常はここに現れないが、持ち出し用に置いた場合に備えて無視する
+tones/
+glyphs/
+appicon.png
+store.json
+backup/

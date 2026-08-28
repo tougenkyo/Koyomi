@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koyomi-alarm"
+version = "0.9.000"
+description = "日本の祝日を避けて鳴る、デスクトップ向けの目覚ましアプリ"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "tougenkyo" }]
+keywords = ["alarm", "clock", "timer", "stopwatch", "holiday", "jpholiday", "pyside6"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: Japanese",
+    "Natural Language :: English",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Desktop Environment",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "jpholiday>=1.0",
+    "pygame>=2.5",
+    'tzdata>=2024.1 ; sys_platform == "win32"',
+]
+
+[project.urls]
+Homepage = "https://github.com/tougenkyo/Koyomi"
+Issues = "https://github.com/tougenkyo/Koyomi/issues"
+
+[project.gui-scripts]
+koyomi = "koyomi.ui.app:run"
+
+[tool.setuptools]
+packages = ["koyomi", "koyomi.ui"]

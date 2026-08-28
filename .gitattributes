@@ -1,0 +1,7 @@
+# 既定は自動判別。テキストはリポジトリ内で LF に揃える
+* text=auto
+
+# 画像・音声はバイナリとして扱う（差分を取らない）
+*.png binary
+*.ico binary
+*.wav binary
