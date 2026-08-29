@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QHBoxLayout,
                                QMenu, QMessageBox, QPushButton, QScrollArea,
                                QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from .. import APP_TITLE, actions, i18n, planner, power
+from .. import APP_TITLE, actions, autostart, i18n, planner, power
 from ..director import RingDirector
 from ..models import (QUICK_ACTIONS, WEEKDAY_LABELS, Cycle, ListOrder,
                       WakeItem, as_enum)
@@ -27,6 +27,7 @@ from .ring_window import RingWindow
 from .settings import SettingsDialog
 from .timers import TimerWindow
 from .todo import TodoWindow
+from .updates import UpdateDialog, quiet_check
 from .widgets import Pill, TimeSpinner, ToggleSwitch
 from .worldclock import WorldClockWindow
 from ..i18n import tr
@@ -217,6 +218,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(200, self.show_float_bar)
         QTimer.singleShot(400, self._report_missed)
         QTimer.singleShot(600, self._review_pending_actions)
+        QTimer.singleShot(900, self._check_autostart_health)
+        if self.vault.prefs.check_updates:
+            QTimer.singleShot(2500, lambda: quiet_check(self))
 
     # ------------------------------------------------------------------
     # 画面の組み立て
@@ -740,6 +744,7 @@ class MainWindow(QMainWindow):
                    else tr("フローティング表示を出す"))
         menu.addAction(caption, self.toggle_float_bar)
         menu.addSeparator()
+        menu.addAction(tr("更新を確認…"), self.open_updates)
         menu.addAction(tr("設定…"), self.open_settings)
         menu.addAction(tr("このアプリについて"), self.show_about)
         menu.addSeparator()
@@ -844,6 +849,31 @@ class MainWindow(QMainWindow):
             self.order_box.blockSignals(False)
             self._build_quick_bar()
             self.after_change()
+
+    def open_updates(self) -> None:
+        dialog = UpdateDialog(self)
+        dialog.restart_wanted.connect(self.quit_app)
+        dialog.exec()
+
+    def summon(self) -> None:
+        """もう一つ起動しようとした人がいたので、前に出る。"""
+        self._restore_window()
+        self.flash_status(tr("すでに動いています。こちらの窓を使ってください。"))
+
+    def _check_autostart_health(self) -> None:
+        """登録が古い場所を指したままなら知らせる。"""
+        if not autostart.IS_WINDOWS or not autostart.is_registered():
+            return
+        if autostart.points_here():
+            return
+        answer = QMessageBox.question(
+            self, tr("自動起動の登録"),
+            tr("Windows 起動時に開く設定が、いまと違う場所を指しています。"
+               "この場所で登録し直しますか？"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer == QMessageBox.Yes:
+            trouble = autostart.enable(self.vault.prefs.start_minimized)
+            self.flash_status(trouble or tr("自動起動を登録し直しました。"))
 
     def show_about(self) -> None:
         from .. import APP_VERSION
@@ -984,6 +1014,7 @@ class MainWindow(QMainWindow):
             (tr("設定の保存"), self.vault.save),
             (tr("音の停止"), self.engine.shutdown),
             (tr("トレイアイコンの削除"), self._drop_tray),
+            (tr("窓口を閉じる"), self._release_guard),
         )
         for label, action in steps:
             try:
@@ -1001,6 +1032,11 @@ class MainWindow(QMainWindow):
         if self.timer_window is not None:
             self.timer_window.close()
             self.timer_window = None
+
+    def _release_guard(self) -> None:
+        guard = getattr(self, "guard", None)
+        if guard is not None:
+            guard.release()
 
     def _close_extras(self) -> None:
         for attr in ("float_bar", "world_window", "todo_window"):

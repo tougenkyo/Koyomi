@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QPushButton, QScrollArea, QSpinBox, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from .. import power
+from .. import autostart, power
 from ..i18n import LANGUAGES
 from ..models import QUICK_ACTIONS, ListOrder, WakeItem, as_enum
 from ..vault import backups_dir, data_dir
@@ -211,6 +211,57 @@ class SettingsDialog(QDialog):
             warn.setWordWrap(True)
             lay.addWidget(warn)
 
+        boot = QGroupBox(tr("Windows の起動時に始める"))
+        bl = QVBoxLayout(boot)
+        self.boot_box = QCheckBox(tr("Windows を起動したら、このアプリも開始する"))
+        self.boot_box.setChecked(autostart.healthy())
+        self.boot_box.setEnabled(autostart.IS_WINDOWS)
+        bl.addWidget(self.boot_box)
+
+        self.boot_tray = QCheckBox(tr("そのときはトレイに畳んでおく"))
+        self.boot_tray.setChecked(prefs.start_minimized)
+        self.boot_tray.setEnabled(autostart.IS_WINDOWS)
+        bl.addWidget(self.boot_tray)
+
+        self.boot_state = QLabel(autostart.state())
+        self.boot_state.setWordWrap(True)
+        self.boot_state.setStyleSheet("color: %s; font-size: 11px;"
+                                      % theme.TEXT_SUB)
+        bl.addWidget(self.boot_state)
+
+        boot_row = QHBoxLayout()
+        again = QPushButton(tr("登録し直す"))
+        again.setProperty("tone", "ghost")
+        again.setEnabled(autostart.IS_WINDOWS)
+        again.clicked.connect(self._reregister_boot)
+        boot_row.addWidget(again)
+        opener = QPushButton(tr("Windows の設定を開く"))
+        opener.setProperty("tone", "ghost")
+        opener.setEnabled(autostart.IS_WINDOWS)
+        opener.clicked.connect(autostart.open_startup_settings)
+        boot_row.addWidget(opener)
+        boot_row.addStretch(1)
+        bl.addLayout(boot_row)
+
+        note = QLabel(tr("このフォルダを移動すると登録が外れます。"
+                         "移動したときは「登録し直す」を押してください。"))
+        note.setWordWrap(True)
+        note.setStyleSheet("color: %s; font-size: 11px;" % theme.TEXT_SUB)
+        bl.addWidget(note)
+        lay.addWidget(boot)
+
+        fresh = QGroupBox(tr("更新"))
+        fl = QVBoxLayout(fresh)
+        self.update_box = QCheckBox(tr("起動したときに新しい版が出ていないか調べる"))
+        self.update_box.setChecked(prefs.check_updates)
+        fl.addWidget(self.update_box)
+        unote = QLabel(tr("調べるときだけ GitHub へ問い合わせます。"
+                          "切っていても、メニューの「更新を確認」からいつでも調べられます。"))
+        unote.setWordWrap(True)
+        unote.setStyleSheet("color: %s; font-size: 11px;" % theme.TEXT_SUB)
+        fl.addWidget(unote)
+        lay.addWidget(fresh)
+
         wake = QGroupBox(tr("時刻に合わせて PC を起こす"))
         wl = QVBoxLayout(wake)
         self.wake_box = QCheckBox(tr("スリープ中でも、次のアラームの少し前に復帰させる"))
@@ -266,6 +317,11 @@ class SettingsDialog(QDialog):
 
         lay.addStretch(1)
         return page
+
+    def _reregister_boot(self) -> None:
+        trouble = autostart.enable(self.boot_tray.isChecked())
+        self.boot_box.setChecked(autostart.healthy())
+        self.boot_state.setText(trouble or autostart.state())
 
     def _probe_wake(self) -> None:
         self.wake_report.setPlainText(power.wake_timer_report())
@@ -451,6 +507,13 @@ class SettingsDialog(QDialog):
         prefs.keep_awake_ringing = self.hold_box.isChecked()
         prefs.auto_sleep = self.sleep_box.isChecked()
         prefs.auto_sleep_at = self.sleep_at.time().toString("HH:mm")
+        prefs.start_minimized = self.boot_tray.isChecked()
+        prefs.check_updates = self.update_box.isChecked()
+        if autostart.IS_WINDOWS:
+            if self.boot_box.isChecked():
+                autostart.enable(prefs.start_minimized)
+            elif autostart.is_registered():
+                autostart.disable()
 
         for key, field in self.group_fields.items():
             name = field.text().strip()

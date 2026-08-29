@@ -209,6 +209,40 @@ class TrayHint(unittest.TestCase):
         self.assertTrue(again.prefs.tray_hint_shown)
 
 
+class SingleInstance(unittest.TestCase):
+    """二つ目の起動を弾いて、一つ目に知らせること。"""
+
+    NAME = "KoyomiSoloTest"
+
+    def test_the_second_one_is_turned_away(self):
+        import time
+        from koyomi.ui.solo import SoloGuard
+        first = SoloGuard(self.NAME)
+        self.assertTrue(first.claim())
+        called = []
+        first.summoned.connect(lambda: called.append(1))
+        try:
+            second = SoloGuard(self.NAME)
+            self.assertFalse(second.claim(), "二つ目が窓口を取れてしまった")
+            for _ in range(30):
+                _app.processEvents()
+                time.sleep(0.02)
+                if called:
+                    break
+            self.assertTrue(called, "一つ目に呼び出しが届かなかった")
+        finally:
+            first.release()
+
+    def test_the_name_is_free_again_after_release(self):
+        from koyomi.ui.solo import SoloGuard
+        first = SoloGuard(self.NAME)
+        self.assertTrue(first.claim())
+        first.release()
+        second = SoloGuard(self.NAME)
+        self.assertTrue(second.claim())
+        second.release()
+
+
 class Appearance(unittest.TestCase):
     def test_every_palette_builds(self):
         catalogue = theme.catalog()

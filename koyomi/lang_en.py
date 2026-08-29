@@ -677,6 +677,73 @@ WORDS = {
     "日付リスト 7": "Date list 7",
     "日付リスト 8": "Date list 8",
 
+    # ---- 自動起動と多重起動 ------------------------------------------------
+    "Windows の起動時に始める": "Start with Windows",
+    "Windows を起動したら、このアプリも開始する":
+        "Start this app when Windows starts",
+    "そのときはトレイに畳んでおく": "Start folded into the tray",
+    "Windows の設定を開く": "Open Windows settings",
+    "登録し直す": "Register again",
+    "自動起動の登録": "Startup registration",
+    "自動起動を登録し直しました。": "Startup was registered again.",
+    "登録されていません。": "Not registered.",
+    "登録済み。次回の Windows 起動から始まります。":
+        "Registered. It will start with the next Windows boot.",
+    "別の場所が登録されています。登録し直してください。":
+        "Another location is registered. Please register again.",
+    "登録はありますが、タスクマネージャーで無効にされています。":
+        "It is registered, but Task Manager has it disabled.",
+    "この OS では自動起動に対応していません。":
+        "Starting with the system is not supported on this OS.",
+    "登録できませんでした: %s": "Could not register: %s",
+    "解除できませんでした: %s": "Could not unregister: %s",
+    "このフォルダを移動すると登録が外れます。移動したときは「登録し直す」を押してください。":
+        "Moving this folder breaks the registration. "
+        "Press Register again after a move.",
+    "Windows 起動時に開く設定が、いまと違う場所を指しています。この場所で登録し直しますか？":
+        "The start-with-Windows entry points somewhere else. "
+        "Register this location instead?",
+    "すでに動いています。こちらの窓を使ってください。":
+        "It is already running. Use this window.",
+    "窓口を閉じる": "Closing the instance guard",
+
+    # ---- 更新 --------------------------------------------------------------
+    "更新": "Updates",
+    "更新の確認": "Check for updates",
+    "更新を確認…": "Check for updates…",
+    "起動したときに新しい版が出ていないか調べる":
+        "Look for a newer version at startup",
+    "調べるときだけ GitHub へ問い合わせます。切っていても、メニューの「更新を確認」からいつでも調べられます。":
+        "It reaches GitHub only while checking. Even when this is off, "
+        "you can check any time from the menu.",
+    "調べています…": "Checking…",
+    "いまの版: %s": "Installed: %s",
+    "いまの版: %s ／ 向こうの版: %s": "Installed: %s / Available: %s",
+    "最新版を使っています。": "You are on the latest version.",
+    "新しい版 %s があります。": "Version %s is available.",
+    "新しい版 %s が出ています。": "Version %s is out.",
+    "新しい版 %s が出ています。メニューの「更新を確認」から取り込めます。":
+        "Version %s is out. Use Check for updates in the menu to get it.",
+    "確認できませんでした。": "The check did not go through.",
+    "通信できなかったようです。": "The connection did not work.",
+    "調べられませんでした: %s": "Could not check: %s",
+    "向こうの版番号を読み取れませんでした。":
+        "The version number could not be read.",
+    "配布ページを開く": "Open the project page",
+    "いまの場所を更新する": "Update this copy",
+    "取り込んでいます…": "Fetching…",
+    "取り込みました。開き直すと新しい版になります。":
+        "Fetched. Reopen the app to run the new version.",
+    "取り込めませんでした。": "The update did not go through.",
+    "開き直して反映する": "Reopen to apply",
+    "開き直せませんでした。手で起動し直してください。":
+        "Could not reopen. Please start it again yourself.",
+    "この場所は git の作業コピーではないため、自動では取り込めません。":
+        "This copy is not a git working tree, so it cannot update itself.",
+    "取り込み元が設定されていません。": "No upstream is set.",
+    "手元に未保存の変更があります。先にコミットするか元に戻してください。":
+        "There are uncommitted changes here. Commit or discard them first.",
+
     # ---- 終了処理・その他 --------------------------------------------------
     "[%s] 終了処理でつまずきました: %s: %s": "[%s] Shutdown step failed: %s: %s",
     "時刻の記録": "Recording the time",

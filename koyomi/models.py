@@ -446,6 +446,8 @@ class Prefs:
     keep_group_filter: bool = True
     tray_next_alarm: bool = True
     tray_hint_shown: bool = False      # 常駐の案内を出したことがあるか
+    start_minimized: bool = True       # 自動起動のときトレイへ畳むか
+    check_updates: bool = False        # 起動時に新しい版を調べるか
     notify_auto_stop: bool = True
     overlap_policy: str = "snooze"     # "snooze" | "stop" | "queue"
     catch_up_window_minutes: int = 60  # 起動時にこの範囲の取りこぼしを鳴らす
