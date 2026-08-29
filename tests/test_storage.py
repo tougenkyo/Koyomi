@@ -1,10 +1,11 @@
 """保存と読み直し、連動動作の隔離を確かめる。"""
 import datetime as dt
 import os
+import pathlib
 import tempfile
 import unittest
 
-from koyomi.actions import LaunchPlan, check, run
+from koyomi.actions import LaunchPlan, check, is_program, run
 from koyomi.models import (Cycle, Guard, GuardPlan, ListOrder, RepeatRule,
                            SnoozeOrigin, ToneKind, Toughness, WakeItem,
                            as_enum)
@@ -127,6 +128,29 @@ class Companion(unittest.TestCase):
     def test_timing_decides_whether_it_runs(self):
         plan = LaunchPlan(enabled=True, url="https://x.example", at_stop=True)
         self.assertEqual(run(plan, at_stop=False), "")
+
+    def test_executables_and_documents_are_told_apart(self):
+        # 画像や文書を直接 exec しても動かないので、関連付けに回す
+        for path in ('C:/Windows/notepad.exe', 'C:/demo/run.bat',
+                     'C:/demo/go.CMD', 'C:/demo/old.com'):
+            self.assertTrue(is_program(path), path)
+        for path in ('C:/demo/photo.png', 'C:/demo/memo.txt',
+                     'C:/demo/book.pdf', 'C:/demo/clip.mp4'):
+            self.assertFalse(is_program(path), path)
+
+    def test_a_missing_file_is_reported_not_raised(self):
+        plan = LaunchPlan(enabled=True, program='C:/nope/photo.png')
+        self.assertIn('見つかりません', check(plan))
+        self.assertIn('見つかりません', run(plan, at_stop=False))
+
+    def test_an_image_is_a_valid_target(self):
+        # 実行ファイルでなくても設定としては正しい
+        root = pathlib.Path(__file__).resolve().parent.parent
+        image = root / 'docs' / 'screenshots' / 'main.png'
+        if not image.exists():
+            self.skipTest('見本画像がない')
+        self.assertEqual(check(LaunchPlan(enabled=True,
+                                          program=str(image))), '')
 
     def test_nothing_to_do_is_quiet(self):
         self.assertEqual(check(LaunchPlan()), "")

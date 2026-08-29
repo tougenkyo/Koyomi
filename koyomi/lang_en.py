@@ -376,15 +376,10 @@ WORDS = {
     "連動": "Companion",
     "連動動作の確認": "Companion actions",
     "このアラームで連動動作を使う": "Run a companion action with this alarm",
-    "アラームに合わせて、アプリを起動したり Web ページを開いたりします。":
-        "Start a program or open a web page along with the alarm.",
     "何をするか": "What to do",
-    "アプリ": "Program",
     "引数": "Arguments",
-    "引数（省略可）": "Arguments (optional)",
     "ページ": "Page",
     "いつ": "When",
-    "起動するファイル（省略可）": "File to start (optional)",
     "起動するファイルを選ぶ": "Choose a file to start",
     "https://…（省略可）": "https://… (optional)",
     "指定されたファイルが見つかりません: %s": "That file does not exist: %s",
@@ -405,6 +400,14 @@ WORDS = {
         "Some of the alarms you loaded start programs or open pages.",
     "身に覚えのないものは「使わない」を選んでください。":
         "If you do not recognise them, choose No.",
+
+    "%s を開きました。": "Opened %s.",
+    "開くもの": "What to open",
+    "アプリ・画像・文書など（省略可）": "App, image, document… (optional)",
+    "引数（省略可・実行ファイルのときだけ使われます）":
+        "Arguments (optional, used only for executables)",
+    "アラームに合わせて、アプリやファイルを開いたり、Web ページを表示したりします。":
+        "Open an app or a file, or show a web page, along with the alarm.",
 
     # ---- 設定 --------------------------------------------------------------
     "設定": "Settings",

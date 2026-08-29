@@ -694,7 +694,8 @@ class AlarmEditor(QDialog):
         lay.setSpacing(12)
         plan = self.item.launch
 
-        note = QLabel(tr("アラームに合わせて、アプリを起動したり Web ページを開いたりします。"))
+        note = QLabel(tr("アラームに合わせて、アプリやファイルを開いたり、"
+                         "Web ページを表示したりします。"))
         note.setWordWrap(True)
         note.setStyleSheet("color: %s;" % theme.TEXT_SUB)
         lay.addWidget(note)
@@ -708,15 +709,16 @@ class AlarmEditor(QDialog):
 
         program_row = QHBoxLayout()
         self.launch_program = QLineEdit(plan.program)
-        self.launch_program.setPlaceholderText(tr("起動するファイル（省略可）"))
+        self.launch_program.setPlaceholderText(tr("アプリ・画像・文書など（省略可）"))
         program_row.addWidget(self.launch_program, 1)
         browse = QPushButton(tr("参照"))
         browse.clicked.connect(self._pick_program)
         program_row.addWidget(browse)
-        form.addRow(tr("アプリ"), program_row)
+        form.addRow(tr("開くもの"), program_row)
 
         self.launch_args = QLineEdit(plan.arguments)
-        self.launch_args.setPlaceholderText(tr("引数（省略可）"))
+        self.launch_args.setPlaceholderText(
+            tr("引数（省略可・実行ファイルのときだけ使われます）"))
         form.addRow(tr("引数"), self.launch_args)
 
         self.launch_url = QLineEdit(plan.url)
