@@ -8,12 +8,13 @@ from __future__ import annotations
 from PySide6.QtCore import QTime, Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QGridLayout, QGroupBox, QLabel, QListWidget,
-                               QListWidgetItem, QSpinBox, QTimeEdit, QVBoxLayout,
+                               QListWidgetItem, QSpinBox, QVBoxLayout,
                                QWidget)
 
 from ..models import Guard, ToneKind, WakeItem, as_enum
 from ..tonesmith import TONE_CATALOG
 from . import theme
+from .widgets import TimeSpinner
 from ..i18n import tr
 
 
@@ -56,9 +57,7 @@ class BulkDialog(QDialog):
             grid.addWidget(widget, r, 1)
             self.rows[key] = (flag, widget)
 
-        time_field = QTimeEdit(QTime(7, 0))
-        time_field.setDisplayFormat("HH:mm")
-        time_field.setWrapping(True)
+        time_field = TimeSpinner(QTime(7, 0, 0), "HH:mm:ss")
         add_row("time", tr("時刻"), time_field)
 
         group_box = QComboBox()
@@ -145,6 +144,7 @@ class BulkDialog(QDialog):
         if on("time"):
             picked = self.rows["time"][1].time()
             item.hour, item.minute = picked.hour(), picked.minute()
+            item.second = picked.second()
         if on("group"):
             item.group = self.rows["group"][1].currentData()
         if on("active"):

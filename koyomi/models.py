@@ -284,6 +284,7 @@ class WakeItem:
     active: bool = True
     hour: int = 7
     minute: int = 0
+    second: int = 0
     title: str = ""
     group: str = "a"
     repeat: RepeatRule = field(default_factory=RepeatRule)
@@ -312,13 +313,16 @@ class WakeItem:
     # ---- 表示用ヘルパ -----------------------------------------------------
     @property
     def clock_text(self) -> str:
+        """秒を指定していないときは、時と分だけを見せる。"""
+        if self.second:
+            return "%02d:%02d:%02d" % (self.hour, self.minute, self.second)
         return "%02d:%02d" % (self.hour, self.minute)
 
     def display_title(self, fallback: str = tr("アラーム")) -> str:
         return self.title.strip() or fallback
 
     def time_of_day(self) -> dt.time:
-        return dt.time(self.hour, self.minute)
+        return dt.time(self.hour, self.minute, self.second)
 
     def copy_as_new(self) -> "WakeItem":
         clone = WakeItem.from_dict(self.to_dict())
@@ -337,6 +341,7 @@ class WakeItem:
             "active": self.active,
             "hour": self.hour,
             "minute": self.minute,
+            "second": self.second,
             "title": self.title,
             "group": self.group,
             "repeat": self.repeat.to_dict(),
@@ -363,7 +368,7 @@ class WakeItem:
         for key in ("uid", "title", "group", "last_fired_at"):
             if d.get(key) is not None:
                 setattr(obj, key, str(d[key]))
-        for key in ("hour", "minute", "auto_stop_minutes"):
+        for key in ("hour", "minute", "second", "auto_stop_minutes"):
             if d.get(key) is not None:
                 setattr(obj, key, int(d[key]))
         for key in ("active", "dodge_holidays", "skip_once", "flash_screen",
@@ -440,6 +445,7 @@ class Prefs:
     group_filter: list = field(default_factory=list)   # 空なら全表示
     keep_group_filter: bool = True
     tray_next_alarm: bool = True
+    tray_hint_shown: bool = False      # 常駐の案内を出したことがあるか
     notify_auto_stop: bool = True
     overlap_policy: str = "snooze"     # "snooze" | "stop" | "queue"
     catch_up_window_minutes: int = 60  # 起動時にこの範囲の取りこぼしを鳴らす

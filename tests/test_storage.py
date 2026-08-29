@@ -43,6 +43,18 @@ class Serialisation(unittest.TestCase):
         self.assertIs(again.repeat.cycle, Cycle.ANNUAL)
         self.assertIs(again.stop_guard.style, Guard.HOLD)
 
+    def test_seconds_survive_and_show_only_when_set(self):
+        plain = WakeItem(hour=6, minute=30)
+        exact = WakeItem(hour=6, minute=30, second=15)
+        self.assertEqual(plain.clock_text, "06:30")
+        self.assertEqual(exact.clock_text, "06:30:15")
+        self.assertEqual(WakeItem.from_dict(exact.to_dict()).second, 15)
+
+    def test_an_old_store_without_seconds_still_loads(self):
+        raw = WakeItem(hour=6, minute=30).to_dict()
+        del raw["second"]                      # 0.9.001 以前の保存を模す
+        self.assertEqual(WakeItem.from_dict(raw).second, 0)
+
     def test_todo_round_trip(self):
         task = TodoItem(text="電池", weight=Weight.HIGH, due="2026-09-01")
         again = TodoItem.from_dict(task.to_dict())

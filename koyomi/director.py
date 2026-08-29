@@ -13,6 +13,9 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from . import planner
 from .models import Cycle, SnoozeOrigin, WakeItem
 
+# 発火の見張り間隔。秒指定のアラームがこれ以上は遅れない。
+CHECK_INTERVAL_MS = 250
+
 
 class SnoozeState:
     """スヌーズ中のアラーム 1 件分の記録。"""
@@ -39,8 +42,11 @@ class RingDirector(QObject):
         self._snoozes: dict = {}         # uid -> SnoozeState
         self._suspended: set = set()     # 鳴動中／画面表示中で二重発火させたくない uid
         self._last_check = dt.datetime.now()
+        self._last_shown = None      # 画面を描き直した秒
         self._clock = QTimer(self)
-        self._clock.setInterval(1000)
+        # 秒まで指定できるので、判定は 1 秒より細かく回す。
+        # 画面の描き直しは重いので、そちらは秒が変わったときだけ。
+        self._clock.setInterval(CHECK_INTERVAL_MS)
         self._clock.timeout.connect(self._on_tick)
 
     # ---- 起動と停止 -------------------------------------------------------
@@ -186,4 +192,8 @@ class RingDirector(QObject):
             self._suspended.add(item.uid)
             self.due.emit(item, 0)
 
-        self.tick.emit()
+        # 一覧の相対表示は 1 秒に 1 回で足りる
+        stamp = now.replace(microsecond=0)
+        if stamp != self._last_shown:
+            self._last_shown = stamp
+            self.tick.emit()

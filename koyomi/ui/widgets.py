@@ -4,7 +4,8 @@ from __future__ import annotations
 from PySide6.QtCore import (Property, QEasingCurve, QPropertyAnimation, QRectF,
                             QSize, Qt, Signal)
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QWidget
+from PySide6.QtWidgets import (QLabel, QPushButton, QSizePolicy, QTimeEdit,
+                               QWidget)
 
 from . import theme
 
@@ -98,6 +99,47 @@ class ToggleSwitch(QWidget):
             p.drawLine(int(x + d * 0.3), int(r.center().y()),
                        int(x + d * 0.7), int(r.center().y()))
         p.end()
+
+
+class TimeSpinner(QTimeEdit):
+    """時刻の入力欄。
+
+    素の QTimeEdit は、ホイールを回すと「いま選ばれている区切り」が動く。
+    そのため一度クリックしてからでないと、狙った桁を変えられない。
+    ここではカーソルの真下にある区切りへ先に移ってから回すので、
+    時・分・秒のどこでも、合わせるだけで変えられる。
+    """
+
+    def __init__(self, time=None, display="HH:mm", parent=None):
+        super().__init__(parent)
+        self.setDisplayFormat(display)
+        self.setWrapping(True)          # 23 の次は 0、59 の次は 0
+        if time is not None:
+            self.setTime(time)
+
+    def _section_under(self, point):
+        """カーソルの下にある区切りの番号。分からなければ None。"""
+        line = self.lineEdit()
+        if line is None:
+            return None
+        offset = line.cursorPositionAt(line.mapFrom(self, point))
+        text = line.text()
+        # 表示は「時:分:秒」なので、手前にある区切り記号の数がそのまま番号になる
+        index = text.count(":", 0, max(0, offset))
+        return min(index, self.sectionCount() - 1)
+
+    def wheelEvent(self, event):
+        steps = event.angleDelta().y()
+        if not steps:
+            event.ignore()
+            return
+        index = self._section_under(event.position().toPoint())
+        if not self.hasFocus():
+            self.setFocus(Qt.MouseFocusReason)
+        if index is not None:
+            self.setCurrentSectionIndex(index)
+        self.stepBy(1 if steps > 0 else -1)
+        event.accept()
 
 
 class Pill(QLabel):

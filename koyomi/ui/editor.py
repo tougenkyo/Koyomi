@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,
                                QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
                                QLabel, QLineEdit, QPushButton,
                                QScrollArea, QSlider, QSpinBox, QStackedWidget,
-                               QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from ..actions import LaunchPlan, check as check_launch
 from ..models import (WEEKDAY_LABELS, Cycle, Guard, GuardPlan, SnoozeOrigin,
@@ -17,6 +17,7 @@ from ..models import (WEEKDAY_LABELS, Cycle, Guard, GuardPlan, SnoozeOrigin,
 from ..player import AUDIO_SUFFIXES
 from ..tonesmith import TONE_CATALOG
 from . import guards, theme
+from .widgets import TimeSpinner
 from ..i18n import tr
 
 
@@ -499,10 +500,9 @@ class AlarmEditor(QDialog):
 
         head = QGroupBox(tr("時刻と名前"))
         form = QFormLayout(head)
-        self.time_field = QTimeEdit(QTime(self.item.hour, self.item.minute))
-        self.time_field.setDisplayFormat("HH:mm")
-        # 23 の次は 0、59 の次は 0 へ回り込ませる
-        self.time_field.setWrapping(True)
+        self.time_field = TimeSpinner(
+            QTime(self.item.hour, self.item.minute, self.item.second),
+            "HH:mm:ss")
         self.time_field.setStyleSheet("font-size: 26px; padding: 6px 10px;")
         form.addRow(tr("鳴らす時刻"), self.time_field)
 
@@ -785,6 +785,7 @@ class AlarmEditor(QDialog):
         item = self.item
         picked = self.time_field.time()
         item.hour, item.minute = picked.hour(), picked.minute()
+        item.second = picked.second()
         item.title = self.title_field.text().strip()
         item.group = self.group_box.currentData()
         item.repeat = self.repeat_editor.value()

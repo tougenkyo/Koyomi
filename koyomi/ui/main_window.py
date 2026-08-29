@@ -10,7 +10,7 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QMainWindow,
                                QMenu, QMessageBox, QPushButton, QScrollArea,
-                               QSystemTrayIcon, QTimeEdit, QVBoxLayout, QWidget)
+                               QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from .. import APP_TITLE, actions, i18n, planner, power
 from ..director import RingDirector
@@ -27,7 +27,7 @@ from .ring_window import RingWindow
 from .settings import SettingsDialog
 from .timers import TimerWindow
 from .todo import TodoWindow
-from .widgets import Pill, ToggleSwitch
+from .widgets import Pill, TimeSpinner, ToggleSwitch
 from .worldclock import WorldClockWindow
 from ..i18n import tr
 
@@ -638,9 +638,7 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(dialog)
         lay.addWidget(QLabel(tr("今日のこの時刻までに鳴る予定のアラームを止めます。\n"
                              "繰り返しのあるものは「次の1回だけ飛ばす」になります。")))
-        field = QTimeEdit(QTime.currentTime().addSecs(3600))
-        field.setDisplayFormat("HH:mm")
-        field.setWrapping(True)
+        field = TimeSpinner(QTime.currentTime().addSecs(3600), "HH:mm")
         lay.addWidget(field)
         go = QPushButton(tr("実行"))
         go.setProperty("tone", "accent")
@@ -1029,9 +1027,16 @@ class MainWindow(QMainWindow):
         if not self._quitting and self.tray.isVisible():
             event.ignore()
             self.hide()
-            self.tray.showMessage(
-                APP_TITLE, tr("常駐しています。アラームは動き続けます。"),
-                QSystemTrayIcon.Information, 4000)
+            if not self.vault.prefs.tray_hint_shown:
+                # この案内は最初の 1 回だけ。以降は黙って畳む
+                self.tray.showMessage(
+                    APP_TITLE, tr("常駐しています。アラームは動き続けます。"),
+                    QSystemTrayIcon.Information, 5000)
+                self.vault.prefs.tray_hint_shown = True
+                try:
+                    self.vault.save()
+                except Exception:      # noqa: BLE001 - 案内のためだけに落とさない
+                    pass
             return
         self._teardown()
         super().closeEvent(event)

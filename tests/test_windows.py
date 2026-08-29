@@ -143,6 +143,72 @@ class Windows(unittest.TestCase):
         self.assertEqual(row.left, 0.0)
 
 
+class TimeField(unittest.TestCase):
+    """カーソルの下の桁がホイールで動くこと。"""
+
+    def _roll(self, widget, x, up=True):
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from PySide6.QtGui import QWheelEvent
+        event = QWheelEvent(QPointF(x, 16), QPointF(x, 16), QPoint(0, 0),
+                            QPoint(0, 120 if up else -120), Qt.NoButton,
+                            Qt.NoModifier, Qt.NoScrollPhase, False)
+        _app.sendEvent(widget, event)
+        return widget.time()
+
+    def test_each_part_moves_where_the_cursor_is(self):
+        from PySide6.QtCore import QTime
+        from koyomi.ui.widgets import TimeSpinner
+        field = TimeSpinner(QTime(6, 30, 0), "HH:mm:ss")
+        field.resize(170, 32)
+        field.show()
+        _app.processEvents()
+        for x, wanted in ((14, QTime(7, 30, 0)),      # 時のあたり
+                          (55, QTime(6, 31, 0)),      # 分のあたり
+                          (95, QTime(6, 30, 1))):     # 秒のあたり
+            field.setTime(QTime(6, 30, 0))
+            self.assertEqual(self._roll(field, x), wanted, "x=%d" % x)
+        field.close()
+
+    def test_values_wrap_around(self):
+        from PySide6.QtCore import QTime
+        from koyomi.ui.widgets import TimeSpinner
+        field = TimeSpinner(QTime(0, 0, 0), "HH:mm:ss")
+        field.resize(170, 32)
+        field.show()
+        _app.processEvents()
+        self.assertEqual(self._roll(field, 14, up=False), QTime(23, 0, 0))
+        field.close()
+
+
+class TrayHint(unittest.TestCase):
+    def test_the_notice_is_shown_only_once_ever(self):
+        from koyomi.ui.main_window import MainWindow
+        vault = sample_vault()
+        self.assertFalse(vault.prefs.tray_hint_shown)
+        win = MainWindow(vault, quiet_engine())
+        shown = []
+        win.tray.showMessage = lambda *a, **k: shown.append(a)
+        try:
+            win.close()                      # 1 回目 → 案内が出る
+            self.assertEqual(len(shown), 1)
+            self.assertTrue(vault.prefs.tray_hint_shown)
+            win.show()
+            win.close()                      # 2 回目 → 黙って畳む
+            win.show()
+            win.close()
+            self.assertEqual(len(shown), 1)
+        finally:
+            win._quitting = True
+            win.close()
+
+    def test_the_flag_is_kept_across_restarts(self):
+        vault = sample_vault()
+        vault.prefs.tray_hint_shown = True
+        again = Vault()
+        again.apply(vault.snapshot())
+        self.assertTrue(again.prefs.tray_hint_shown)
+
+
 class Appearance(unittest.TestCase):
     def test_every_palette_builds(self):
         catalogue = theme.catalog()

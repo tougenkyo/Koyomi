@@ -8,13 +8,14 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
                                QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
                                QPushButton, QScrollArea, QSpinBox, QTabWidget,
-                               QTimeEdit, QVBoxLayout, QWidget)
+                               QVBoxLayout, QWidget)
 
 from .. import power
 from ..i18n import LANGUAGES
 from ..models import QUICK_ACTIONS, ListOrder, WakeItem, as_enum
 from ..vault import backups_dir, data_dir
 from . import theme
+from .widgets import TimeSpinner
 from .editor import AlarmEditor
 from ..i18n import tr
 
@@ -249,9 +250,7 @@ class SettingsDialog(QDialog):
         self.sleep_box.setChecked(prefs.auto_sleep)
         self.sleep_box.setEnabled(power.IS_WINDOWS)
         rl.addRow(self.sleep_box)
-        self.sleep_at = QTimeEdit()
-        self.sleep_at.setDisplayFormat("HH:mm")
-        self.sleep_at.setWrapping(True)
+        self.sleep_at = TimeSpinner(display="HH:mm")
         try:
             hour, minute = (int(x) for x in prefs.auto_sleep_at.split(":"))
         except ValueError:

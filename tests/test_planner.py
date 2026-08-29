@@ -148,6 +148,36 @@ class MissedAlarms(unittest.TestCase):
         self.assertEqual(hits, [])
 
 
+class Seconds(unittest.TestCase):
+    def test_seconds_are_part_of_the_ring_time(self):
+        item = alarm(hour=6, minute=30, second=15,
+                     repeat=RepeatRule(cycle=Cycle.WEEKDAYS,
+                                       weekdays=[0, 1, 2, 3, 4, 5, 6]))
+        when = planner.upcoming_times(item, Almanac(),
+                                      dt.datetime(2026, 8, 27, 6, 0), 1)[0]
+        self.assertEqual(when, dt.datetime(2026, 8, 27, 6, 30, 15))
+
+    def test_a_second_before_still_counts_as_upcoming(self):
+        item = alarm(hour=6, minute=30, second=15,
+                     repeat=RepeatRule(cycle=Cycle.WEEKDAYS,
+                                       weekdays=[0, 1, 2, 3, 4, 5, 6]))
+        just_before = dt.datetime(2026, 8, 27, 6, 30, 14)
+        self.assertEqual(planner.upcoming_times(item, Almanac(), just_before, 1)[0],
+                         dt.datetime(2026, 8, 27, 6, 30, 15))
+        exactly = dt.datetime(2026, 8, 27, 6, 30, 15)
+        self.assertEqual(planner.upcoming_times(item, Almanac(), exactly, 1)[0],
+                         dt.datetime(2026, 8, 28, 6, 30, 15))
+
+    def test_missed_sweep_sees_a_seconds_alarm(self):
+        item = alarm(hour=6, minute=30, second=42,
+                     repeat=RepeatRule(cycle=Cycle.WEEKDAYS,
+                                       weekdays=[0, 1, 2, 3, 4, 5, 6]))
+        hits = planner.times_in_range(item, Almanac(),
+                                      dt.datetime(2026, 8, 27, 6, 30, 41),
+                                      dt.datetime(2026, 8, 27, 6, 30, 43))
+        self.assertEqual(hits, [dt.datetime(2026, 8, 27, 6, 30, 42)])
+
+
 class Wording(unittest.TestCase):
     def test_duration_text_grows_into_days(self):
         self.assertEqual(planner.duration_text(45), "0:45")
