@@ -338,6 +338,33 @@ def app_icon_png(size: int = 256) -> bytes:
             + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
 
+def app_icon_ico(sizes=(16, 32, 48, 256)) -> bytes:
+    """ショートカット用の ICO を組み立てる。
+
+    Windows のショートカットは PNG を受け付けないので、同じ絵を
+    ICO の器に入れ直す。Vista 以降は中身が PNG のままでよい。
+    """
+    shots = [app_icon_png(n) for n in sizes]
+    head = struct.pack("<HHH", 0, 1, len(shots))        # 予約, 種類=アイコン, 枚数
+    offset = len(head) + 16 * len(shots)
+    entries, body = [], []
+    for size, shot in zip(sizes, shots):
+        side = 0 if size >= 256 else size                # 256 は 0 と書く決まり
+        entries.append(struct.pack("<BBBBHHII", side, side, 0, 0, 1, 32,
+                                   len(shot), offset))
+        offset += len(shot)
+        body.append(shot)
+    return head + b"".join(entries) + b"".join(body)
+
+
+def ensure_ico() -> str:
+    path = os.path.normpath(os.path.join(tones_dir(), "..", "appicon.ico"))
+    if not os.path.exists(path):
+        with open(path, "wb") as fh:
+            fh.write(app_icon_ico())
+    return path
+
+
 def ensure_icon() -> str:
     path = os.path.join(tones_dir(), "..", "appicon.png")
     path = os.path.normpath(path)

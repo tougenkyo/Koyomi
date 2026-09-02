@@ -29,10 +29,12 @@ jobs:
           python -m pip install pyflakes
 
       - name: 構文を確かめる
-        run: python -m compileall -q koyomi run.py
+        run: |
+          python -m compileall -q koyomi run.py
+          python -m py_compile run.pyw
 
       - name: 未使用・未定義を確かめる
-        run: python -m pyflakes koyomi run.py tools tests
+        run: python -m pyflakes koyomi run.py run.pyw tools tests
 
       - name: 画面を組み立ててみる
         env:

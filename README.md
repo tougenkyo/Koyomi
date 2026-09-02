@@ -21,8 +21,36 @@ python -m pip install -r requirements.txt
 ```
 
 ```bash
+pythonw run.pyw
+```
+
+`run.pyw` はコンソールを出さずに始める入口です。
+
+デスクトップやスタートメニューから開きたいときは、次の道具でショートカットを作ってください。
+いま使っている Python を名指しした `.lnk` を、アイコン付きで置きます。
+
+```bash
+python tools/make_shortcut.py
+```
+
+| つけるもの | はたらき |
+| --- | --- |
+| `--start-menu` | スタートメニューにも置く |
+| `--minimized` | トレイに畳んだ状態で始める |
+| `--where` | 作らずに、置き場所だけ出す |
+
+`run.pyw` を直接ダブルクリックしても開きますが、拡張子 `.pyw` の関連付けが Microsoft Store の Python など
+別の Python に取られている場合は、部品の入っていない Python で開こうとして失敗します。
+ショートカットなら Python を名指しできるので、その心配がありません。
+
+動きがおかしいときは、コンソール付きの入口から始めるとその場で内容を確認できます。
+
+```bash
 python run.py
 ```
+
+コンソールを出さずに始めたときは、つまずいた記録だけが `%APPDATA%\Koyomi\error.log` に残ります。
+何事も無ければこのファイルはできません。
 
 初回起動時に、内蔵アラーム音（6 種）とアイコン類をその場で合成して
 `%APPDATA%\Koyomi\` の下へ書き出します。音源や画像の同梱はありません。
@@ -169,9 +197,14 @@ python run.py
 ## ファイル構成
 
 ```
-run.py                    起動口
+run.pyw                   起動口（コンソールを出さない・ふだんはこちら）
+run.py                    起動口（コンソール付き・不具合を追うとき）
 requirements.txt
 docs/screenshots/         README 用の画像
+tools/
+  make_shortcut.py        ショートカットを作る
+  bump_version.py         版番号を進める
+  check_translations.py   対訳表の抜けを調べる
 koyomi/
   models.py               データ型（WakeItem, RepeatRule, SoundPlan, ...）
   planner.py              次回鳴動時刻の計算と表示用の文字列
