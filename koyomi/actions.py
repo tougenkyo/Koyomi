@@ -144,3 +144,12 @@ def run(plan: LaunchPlan, at_stop: bool) -> str:
                 notes.append(tr("ページを開けませんでした: %s") % err)
 
     return " ".join(notes)
+
+
+def run_now(plan: LaunchPlan) -> str:
+    """時機を問わず実行する。画面を出さないアラーム用。
+
+    画面が出ないと「鳴り始め」も「止めたとき」も無いので、
+    どちらの指定でも、時刻が来た時点で同じように動かす。
+    """
+    return run(plan, at_stop=bool(plan.at_stop))

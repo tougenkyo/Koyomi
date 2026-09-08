@@ -308,6 +308,10 @@ class WakeItem:
     shrink_text: bool = False
     toggle_locked: bool = False       # ON/OFF スイッチの誤操作防止
 
+    # 画面を出さずに済ませる。連動して起動するものだけを動かす。
+    silent_run: bool = False
+    notify_silent_run: bool = True    # そのとき通知で知らせるか
+
     last_fired_at: str = ""           # 実行時に更新
 
     # ---- 表示用ヘルパ -----------------------------------------------------
@@ -358,6 +362,8 @@ class WakeItem:
             "erase_after_stop": self.erase_after_stop,
             "shrink_text": self.shrink_text,
             "toggle_locked": self.toggle_locked,
+            "silent_run": self.silent_run,
+            "notify_silent_run": self.notify_silent_run,
             "last_fired_at": self.last_fired_at,
         }
 
@@ -372,7 +378,8 @@ class WakeItem:
             if d.get(key) is not None:
                 setattr(obj, key, int(d[key]))
         for key in ("active", "dodge_holidays", "skip_once", "flash_screen",
-                    "erase_after_stop", "shrink_text", "toggle_locked"):
+                    "erase_after_stop", "shrink_text", "toggle_locked",
+                    "silent_run", "notify_silent_run"):
             if d.get(key) is not None:
                 setattr(obj, key, bool(d[key]))
         obj.dodge_lists = [str(x) for x in d.get("dodge_lists", [])]

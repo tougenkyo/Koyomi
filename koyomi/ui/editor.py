@@ -468,13 +468,14 @@ class AlarmEditor(QDialog):
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
 
-        tabs = QTabWidget()
+        self.tabs = tabs = QTabWidget()
         tabs.addTab(self._wrap(self._tab_basics()), tr("基本"))
         tabs.addTab(self._wrap(self._tab_sound()), tr("音"))
         tabs.addTab(self._wrap(self._tab_stop()), tr("停止・スヌーズ"))
         tabs.addTab(self._wrap(self._tab_screen()), tr("画面"))
         tabs.addTab(self._wrap(self._tab_launch()), tr("連動"))
         root.addWidget(tabs, 1)
+        self._sync_silence()          # タブが揃ってから効かせる
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText(tr("保存"))
@@ -604,10 +605,11 @@ class AlarmEditor(QDialog):
         self.erase_box = QCheckBox(tr("止めたらこのアラームを削除する"))
         self.erase_box.setChecked(self.item.erase_after_stop)
         form.addRow(self.erase_box)
+        self.stop_form = form
         sl.addLayout(form)
         lay.addWidget(stop_box)
 
-        snooze_box = QGroupBox(tr("スヌーズ"))
+        self.snooze_group = snooze_box = QGroupBox(tr("スヌーズ"))
         nl = QVBoxLayout(snooze_box)
         self.snooze_on = QCheckBox(tr("スヌーズを使う"))
         self.snooze_on.setChecked(self.item.snooze.enabled)
@@ -663,7 +665,7 @@ class AlarmEditor(QDialog):
         lay = QVBoxLayout(page)
         lay.setSpacing(12)
 
-        box = QGroupBox(tr("鳴動画面"))
+        self.ring_look_group = box = QGroupBox(tr("鳴動画面"))
         bl = QVBoxLayout(box)
         self.flash_box = QCheckBox(tr("画面のふちを点滅させる"))
         self.flash_box.setChecked(self.item.flash_screen)
@@ -730,6 +732,7 @@ class AlarmEditor(QDialog):
         self.launch_when.addItem(tr("止めたとき"), True)
         self.launch_when.setCurrentIndex(1 if plan.at_stop else 0)
         form.addRow(tr("いつ"), self.launch_when)
+        self.launch_form = form
         lay.addWidget(box)
 
         self.launch_note = QLabel("")
@@ -743,6 +746,22 @@ class AlarmEditor(QDialog):
         caution.setStyleSheet("color: %s; font-size: 11px;" % theme.TEXT_SUB)
         lay.addWidget(caution)
 
+        quiet = QGroupBox(tr("画面を出さずに済ませる"))
+        ql = QVBoxLayout(quiet)
+        self.silent_on = QCheckBox(tr("時刻が来たら、画面も音も出さずに実行する"))
+        self.silent_on.setChecked(self.item.silent_run)
+        ql.addWidget(self.silent_on)
+        self.silent_notify = QCheckBox(tr("実行したことを通知で知らせる"))
+        self.silent_notify.setChecked(self.item.notify_silent_run)
+        ql.addWidget(self.silent_notify)
+        quiet_note = QLabel(tr("止める操作が要らないので、スヌーズも自動停止もしません。"
+                               "「いつ」の指定は使わず、時刻が来た時点で実行します。"))
+        quiet_note.setWordWrap(True)
+        quiet_note.setStyleSheet("color: %s; font-size: 11px;" % theme.TEXT_SUB)
+        ql.addWidget(quiet_note)
+        self.silent_on.toggled.connect(lambda _on: self._sync_silence())
+        lay.addWidget(quiet)
+
         for widget in (self.launch_program, self.launch_args, self.launch_url):
             widget.textChanged.connect(self._check_launch)
         self.launch_on.toggled.connect(
@@ -754,6 +773,22 @@ class AlarmEditor(QDialog):
 
         lay.addStretch(1)
         return page
+
+    def _sync_silence(self) -> None:
+        """画面を出さない設定のときは、関わりのない欄を引っ込める。
+
+        鳴らさないので、音・止め方・スヌーズ・鳴動画面は出番が無い。
+        「止めたら削除」と「スイッチの固定」は画面と関わりが無いので残す。
+        値そのものは残るので、チェックを外せば元どおりになる。
+        """
+        quiet = self.silent_on.isChecked()
+        self.tabs.setTabVisible(1, not quiet)              # 音
+        self.stop_guard_editor.setVisible(not quiet)       # 止め方の操作
+        self.stop_form.setRowVisible(self.autostop_box, not quiet)
+        self.snooze_group.setVisible(not quiet)
+        self.ring_look_group.setVisible(not quiet)
+        self.silent_notify.setEnabled(quiet)
+        self.launch_form.setRowVisible(self.launch_when, not quiet)
 
     def _pick_program(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, tr("起動するファイルを選ぶ"))
@@ -813,6 +848,8 @@ class AlarmEditor(QDialog):
         item.shrink_text = self.shrink_box.isChecked()
         item.toggle_locked = self.lock_box.isChecked()
         item.launch = self._launch_value()
+        item.silent_run = self.silent_on.isChecked()
+        item.notify_silent_run = self.silent_notify.isChecked()
         self.accept()
 
     def result_item(self) -> WakeItem:

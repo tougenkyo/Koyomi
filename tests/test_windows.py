@@ -8,6 +8,7 @@
 import datetime as dt
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -18,6 +19,7 @@ from koyomi.models import Cycle, Guard, GuardPlan, RepeatRule, WakeItem
 from koyomi.player import SoundEngine
 from koyomi.tasks import TodoItem, Weight
 from koyomi.ui import theme
+from koyomi.ui.main_window import MainWindow
 from koyomi.vault import Vault
 
 _app = QApplication.instance() or QApplication([])
@@ -178,6 +180,142 @@ class TimeField(unittest.TestCase):
         _app.processEvents()
         self.assertEqual(self._roll(field, 14, up=False), QTime(23, 0, 0))
         field.close()
+
+
+class SilentRun(unittest.TestCase):
+    """画面を出さずに、ついでにやることだけ済ませるアラーム。"""
+
+    def setUp(self):
+        from koyomi.actions import LaunchPlan
+        i18n.set_language("ja")
+        self.vault = Vault()
+        self.item = WakeItem(hour=9, minute=0, title="バックアップ",
+                             silent_run=True)
+        self.item.launch = LaunchPlan(enabled=True, program="どこかの.exe")
+        self.vault.add(self.item)
+        self.win = MainWindow(self.vault, quiet_engine())
+        self.addCleanup(self._shut)
+        self.notices = []
+        self.win.tray.showMessage = lambda *a, **k: self.notices.append(a)
+        self.win.tray.isVisible = lambda: True
+
+    def _shut(self):
+        self.win._quitting = True
+        self.win.close()
+
+    def _fire(self, item=None):
+        from koyomi.ui import main_window as mw
+        with mock.patch.object(mw.actions, "run_now",
+                               return_value="どこかの.exe を起動しました。") as ran:
+            self.win._on_due(item or self.item, 0)
+        return ran
+
+    def test_no_ringing_screen_appears(self):
+        ran = self._fire()
+        self.assertTrue(ran.called, "連動動作が動かなかった")
+        self.assertEqual(self.win.ring_windows, {}, "画面が出てしまった")
+        self.assertFalse(self.win.director.is_held(self.item.uid),
+                         "鳴りっぱなしの扱いのまま残っている")
+
+    def test_the_notice_can_be_turned_on_and_off(self):
+        self._fire()
+        self.assertEqual(len(self.notices), 1)
+        self.assertIn("バックアップ", self.notices[0][1])
+
+        self.notices.clear()
+        self.item.notify_silent_run = False
+        ran = self._fire()
+        self.assertTrue(ran.called, "通知を切ったら連動まで止まった")
+        self.assertEqual(self.notices, [])
+
+    def test_an_ordinary_alarm_still_shows_its_screen(self):
+        from koyomi.ui import main_window as mw
+        plain = WakeItem(hour=9, minute=1, title="ふつう")
+        self.vault.add(plain)
+        with mock.patch.object(mw.actions, "run", return_value=""):
+            self.win._on_due(plain, 0)
+        self.assertIn(plain.uid, self.win.ring_windows)
+
+    def test_the_timing_choice_is_ignored(self):
+        # 「止めたとき」に設定してあっても、止める操作が無いので実行する
+        from koyomi import actions
+        self.item.launch.at_stop = True
+        with mock.patch.object(actions, "_launch", return_value=True) as opened:
+            with mock.patch.object(actions.os.path, "exists", return_value=True):
+                note = actions.run_now(self.item.launch)
+        self.assertTrue(opened.called)
+        self.assertTrue(note)
+
+    def test_a_trial_does_not_launch_anything(self):
+        from koyomi.ui import main_window as mw
+        with mock.patch.object(mw.actions, "run_now") as never:
+            self.win.preview_ring(self.item)
+        never.assert_not_called()
+        self.assertEqual(self.win.ring_windows, {})
+        self.assertEqual(len(self.notices), 1)
+
+    def test_the_list_shows_a_marker(self):
+        from koyomi.ui.widgets import Pill
+        row = self.win.rows[0]
+        labels = [p.text() for p in row.findChildren(Pill)]
+        self.assertIn("画面なし", labels)
+
+    def test_the_setting_survives_a_save_and_load(self):
+        again = Vault()
+        again.apply(self.vault.snapshot())
+        self.assertTrue(again.items[0].silent_run)
+        self.assertTrue(again.items[0].notify_silent_run)
+
+
+class SilenceHidesWhatDoesNotApply(unittest.TestCase):
+    """画面を出さない設定にすると、関わりのない欄が引っ込む。"""
+
+    def setUp(self):
+        from koyomi.ui.editor import AlarmEditor
+        i18n.set_language("ja")
+        self.vault = sample_vault()
+        self.editor = AlarmEditor(self.vault.items[0], self.vault,
+                                  quiet_engine())
+
+    def test_the_ringing_settings_step_aside(self):
+        ed = self.editor
+        self.assertTrue(ed.tabs.isTabVisible(1))
+        ed.silent_on.setChecked(True)
+        self.assertFalse(ed.tabs.isTabVisible(1), "音のタブが残っている")
+        self.assertTrue(ed.snooze_group.isHidden())
+        self.assertTrue(ed.ring_look_group.isHidden())
+        self.assertTrue(ed.stop_guard_editor.isHidden())
+        self.assertFalse(ed.stop_form.isRowVisible(ed.autostop_box))
+        self.assertFalse(ed.launch_form.isRowVisible(ed.launch_when))
+
+    def test_what_has_nothing_to_do_with_the_screen_stays(self):
+        ed = self.editor
+        ed.silent_on.setChecked(True)
+        self.assertFalse(ed.erase_box.isHidden())   # 止めたら削除
+        self.assertFalse(ed.lock_box.isHidden())    # スイッチの固定
+
+    def test_the_notice_box_follows_the_main_one(self):
+        ed = self.editor
+        self.assertFalse(ed.silent_notify.isEnabled())
+        ed.silent_on.setChecked(True)
+        self.assertTrue(ed.silent_notify.isEnabled())
+
+    def test_unchecking_puts_everything_back(self):
+        ed = self.editor
+        ed.silent_on.setChecked(True)
+        ed.silent_on.setChecked(False)
+        self.assertTrue(ed.tabs.isTabVisible(1))
+        self.assertFalse(ed.snooze_group.isHidden())
+        self.assertTrue(ed.launch_form.isRowVisible(ed.launch_when))
+
+    def test_both_choices_are_written_back(self):
+        ed = self.editor
+        ed.silent_on.setChecked(True)
+        ed.silent_notify.setChecked(False)
+        ed._commit()
+        saved = ed.result_item()
+        self.assertTrue(saved.silent_run)
+        self.assertFalse(saved.notify_silent_run)
 
 
 class TrayHint(unittest.TestCase):

@@ -128,6 +128,8 @@ class AlarmRow(QWidget):
             self.pills.addWidget(Pill(tr("固定"), theme.TEXT_SUB))
         if item.skip_once:
             self.pills.addWidget(Pill(tr("次は飛ばす"), theme.WARN))
+        if item.silent_run:
+            self.pills.addWidget(Pill(tr("画面なし"), theme.COOL))
         if self.window.director.is_snoozing(item.uid):
             state = self.window.director.snooze_state(item.uid)
             self.pills.addWidget(Pill(tr("スヌーズ %d回目") % state.rounds, theme.COOL))
@@ -595,7 +597,19 @@ class MainWindow(QMainWindow):
             self.reload()
 
     def preview_ring(self, item: WakeItem) -> None:
+        if item.silent_run:
+            self._preview_silence(item)
+            return
         self._open_ring(item, round_no=0, preview=True)
+
+    def _preview_silence(self, item: WakeItem) -> None:
+        """画面を出さないアラームの試し。通知の出かたを見るためのもの。"""
+        message = tr("「%s」は画面を出さずに実行します"
+                     "（試しなので連動動作は動かしません）。") % item.display_title()
+        self.flash_status(message)
+        if item.notify_silent_run and self.tray.isVisible():
+            self.tray.showMessage(APP_TITLE, message,
+                                  QSystemTrayIcon.Information, 6000)
 
     # ------------------------------------------------------------------
     # まとめて操作
@@ -895,6 +909,10 @@ class MainWindow(QMainWindow):
     # 鳴動
     # ------------------------------------------------------------------
     def _on_due(self, item: WakeItem, round_no: int) -> None:
+        if item.silent_run:
+            # 画面を取らないので、ほかのアラームと重なっても譲る必要がない
+            self._run_in_silence(item)
+            return
         if self.ring_windows and self.vault.prefs.overlap_policy != "queue":
             self._handle_overlap(item, round_no)
             return
@@ -910,6 +928,24 @@ class MainWindow(QMainWindow):
             self.director.settle_after_stop(item)
             self.flash_status(tr("「%s」は別のアラームと重なったため見送りました。")
                               % item.display_title())
+        self.after_change()
+
+    def _run_in_silence(self, item: WakeItem) -> None:
+        """画面も音も出さず、ついでにやることだけ済ませる。
+
+        止める操作が無いので、鳴らし終えたものとしてその場で片付ける。
+        スヌーズも自動停止も起きない。
+        """
+        note = actions.run_now(item.launch)
+        self.director.settle_after_stop(item)
+        headline = tr("「%s」を画面を出さずに実行しました。") % item.display_title()
+        message = "%s %s" % (headline, note) if note else headline
+        self.flash_status(message)
+        if item.notify_silent_run and self.tray.isVisible():
+            self.tray.showMessage(APP_TITLE, message,
+                                  QSystemTrayIcon.Information, 6000)
+        if item.erase_after_stop:
+            self.vault.remove(item.uid)
         self.after_change()
 
     def _open_ring(self, item: WakeItem, round_no: int, preview: bool = False) -> None:

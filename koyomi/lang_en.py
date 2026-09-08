@@ -744,6 +744,22 @@ WORDS = {
     "手元に未保存の変更があります。先にコミットするか元に戻してください。":
         "There are uncommitted changes here. Commit or discard them first.",
 
+    # ---- 画面を出さない実行 ------------------------------------------------
+    "画面を出さずに済ませる": "Run without showing anything",
+    "時刻が来たら、画面も音も出さずに実行する":
+        "When the time comes, run without a screen or a sound",
+    "実行したことを通知で知らせる": "Show a notification when it runs",
+    "止める操作が要らないので、スヌーズも自動停止もしません。"
+    "「いつ」の指定は使わず、時刻が来た時点で実行します。":
+        "There is nothing to stop, so it never snoozes or auto-stops. "
+        "The timing choice above is not used; it runs when the time comes.",
+    "「%s」を画面を出さずに実行しました。":
+        "Ran \"%s\" without showing anything.",
+    "「%s」は画面を出さずに実行します（試しなので連動動作は動かしません）。":
+        "\"%s\" runs without showing anything "
+        "(this is only a try, so the companion action stays put).",
+    "画面なし": "No screen",
+
     # ---- 終了処理・その他 --------------------------------------------------
     "[%s] 終了処理でつまずきました: %s: %s": "[%s] Shutdown step failed: %s: %s",
     "時刻の記録": "Recording the time",
