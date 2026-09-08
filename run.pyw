@@ -1,16 +1,15 @@
-"""こよみアラーム を、黒い窓を出さずに始める入口。
+"""こよみアラーム の起動口。
 
 Windows では拡張子 .pyw が pythonw.exe に結び付いていて、
-これを開くとコンソールが出ない。ふだんはこちらを使う。
+これで始めると黒い窓が出ない。ふだんはこちらで開く。
 
-引き換えに pythonw.exe には標準出力も標準エラーも無い。
-そのままでは、つまずいても何も残さずに消えてしまうので、
-行き場を失った出力を控えのファイルへ向け直しておく。
+    pythonw run.pyw     窓を出さずに始める
+    python  run.pyw     コンソールを付けて始める（不具合を追うとき）
 
-    pythonw run.pyw     窓を出さずに始める（ダブルクリックも同じ）
-    python  run.py      コンソールを付けて始める（不具合を追うとき）
-
-控えの行き先は %APPDATA%\Koyomi\error.log。
+pythonw.exe には標準出力も標準エラーも無い。そのままでは、つまずいても
+何も残さずに消えてしまうので、そのときだけ行き場を失った出力を
+控えのファイル（%APPDATA%\Koyomi\error.log）へ向け直す。
+python.exe で開いたときは何も細工せず、目の前のコンソールに出す。
 """
 import datetime as dt
 import os
@@ -24,6 +23,9 @@ APP_FOLDER = "Koyomi"
 LOG_NAME = "error.log"
 LINES = chr(10)                 # お知らせの改行
 LOG_LIMIT = 200 * 1024          # これを超えたら古い分は捨てて書き直す
+
+# pythonw で開くと出力先が無い。書き換える前に見分けておく。
+HAS_CONSOLE = sys.stderr is not None
 
 
 def log_path() -> str:
@@ -77,7 +79,14 @@ class Journal:
 
 
 def announce(text: str) -> None:
-    """Qt が使えない場面でも出せる、素の Windows のお知らせ。"""
+    """人に伝える。
+
+    コンソールがあればそちらへ。無いときは Qt が使えない場面でも出せる、
+    素の Windows のお知らせにする。
+    """
+    if HAS_CONSOLE:
+        print(text, file=sys.stderr)
+        return
     if not sys.platform.startswith("win"):
         return
     try:
@@ -106,7 +115,7 @@ def on_trouble(kind, value, chain) -> None:
 
 def missing_parts(trouble) -> str:
     """部品が足りないときの言い分け。どの Python で開いたかまで伝える。"""
-    return LINES.join([
+    said = [
         "必要な部品が見つかりません。",
         "",
         str(trouble),
@@ -114,19 +123,21 @@ def missing_parts(trouble) -> str:
         "開こうとした Python：",
         sys.executable,
         "",
-        "この Python に部品を入れ直すか、",
+        "install.bat を実行して入れ直すか、",
         "tools/make_shortcut.py でショートカットを作ってください。",
-        "",
-        "詳しい記録：",
-        log_path(),
-    ])
+    ]
+    if not HAS_CONSOLE:                 # 目の前に出ないので、置き場所を添える
+        said += ["", "詳しい記録：", log_path()]
+    return LINES.join(said)
 
 
 def main() -> int:
-    sys.stdout = open(os.devnull, "w")      # 部品どうしの挨拶などは捨てる
-    sys.stderr = Journal()                  # 困りごとだけ控えに残す
-    sys.excepthook = on_trouble
-    hush_warnings()
+    if not HAS_CONSOLE:
+        # pythonw で開いた。出力先が無いので、控えのファイルへ向け直す。
+        sys.stdout = open(os.devnull, "w")  # 部品どうしの挨拶などは捨てる
+        sys.stderr = Journal()              # 困りごとだけ控えに残す
+        sys.excepthook = on_trouble
+        hush_warnings()
 
     # ダブルクリックでも、このファイルの隣を探しにいけるようにする
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

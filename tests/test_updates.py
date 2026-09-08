@@ -92,7 +92,7 @@ class Pulling(unittest.TestCase):
 class Autostart(unittest.TestCase):
     def test_the_command_points_at_this_copy(self):
         command = autostart.launch_command(minimized=True)
-        self.assertIn("run.py", command)
+        self.assertIn("run.pyw", command)
         self.assertIn(autostart.TRAY_FLAG, command)
         # 空白を含むパスなので引用符で囲まれていること
         self.assertTrue(command.startswith('"'))
@@ -102,8 +102,8 @@ class Autostart(unittest.TestCase):
                          autostart.launch_command(minimized=False))
 
     def test_the_flag_is_read_from_the_arguments(self):
-        self.assertFalse(autostart.wants_tray(["run.py"]))
-        self.assertTrue(autostart.wants_tray(["run.py", "--minimized"]))
+        self.assertFalse(autostart.wants_tray(["run.pyw"]))
+        self.assertTrue(autostart.wants_tray(["run.pyw", "--minimized"]))
 
     @unittest.skipUnless(autostart.IS_WINDOWS, "Windows 以外")
     def test_register_and_unregister_leave_nothing_behind(self):
@@ -114,7 +114,7 @@ class Autostart(unittest.TestCase):
             try:
                 stored = autostart.current_command()
                 self.assertIsNotNone(stored)
-                self.assertIn("run.py", stored)
+                self.assertIn("run.pyw", stored)
                 self.assertTrue(autostart.points_here())
                 self.assertTrue(autostart.healthy())
             finally:

@@ -44,9 +44,9 @@ def _launcher() -> str:
 
 
 def entry_script() -> str:
-    """run.py の場所。パッケージの 1 つ上にある。"""
+    """起動口の場所。パッケージの 1 つ上にある。"""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "run.py")
+    return os.path.join(root, "run.pyw")
 
 
 def launch_command(minimized: bool = True) -> str:

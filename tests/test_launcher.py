@@ -166,11 +166,49 @@ class IconForTheShortcut(unittest.TestCase):
             self.assertEqual(len(blob[offset:offset + size]), size)
 
 
-class BothEntries(unittest.TestCase):
-    def test_the_two_doors_lead_to_the_same_room(self):
-        for door in ("run.py", "run.pyw"):
-            text = (ROOT / door).read_text(encoding="utf-8")
-            self.assertIn("from koyomi.ui.app import run", text, door)
+class OneDoorOnly(unittest.TestCase):
+    """入口は run.pyw ひとつ。迷わせないよう run.py は置かない。"""
+
+    def test_the_entry_leads_into_the_package(self):
+        text = ENTRY.read_text(encoding="utf-8")
+        self.assertIn("from koyomi.ui.app import run", text)
+
+    def test_there_is_no_second_entry(self):
+        self.assertFalse((ROOT / "run.py").exists(),
+                         "入口が 2 つあると新しく使う人が迷う")
+
+    def test_the_autostart_registration_points_at_it(self):
+        from koyomi import autostart
+        self.assertTrue(autostart.entry_script().endswith("run.pyw"))
+        self.assertEqual(os.path.normcase(autostart.entry_script()),
+                         os.path.normcase(str(ENTRY)))
+
+
+class WithAndWithoutAConsole(unittest.TestCase):
+    """python で開いたか pythonw で開いたかで、伝え方を変える。"""
+
+    def test_with_a_console_it_just_prints(self):
+        said = io.StringIO()
+        with mock.patch.object(launcher, "HAS_CONSOLE", True),              mock.patch.object(sys, "stderr", said),              mock.patch.object(launcher, "log_path") as never:
+            launcher.announce("困りました")
+        self.assertIn("困りました", said.getvalue())
+        never.assert_not_called()
+
+    def test_without_a_console_it_shows_a_window(self):
+        shown = []
+        with mock.patch.object(launcher, "HAS_CONSOLE", False),              mock.patch("ctypes.windll.user32.MessageBoxW",
+                        lambda *a: shown.append(a)):
+            launcher.announce("困りました")
+        if sys.platform.startswith("win"):
+            self.assertEqual(len(shown), 1)
+            self.assertIn("困りました", shown[0])
+
+    def test_the_log_is_only_mentioned_when_it_is_used(self):
+        trouble = ImportError("No module named 'PySide6'")
+        with mock.patch.object(launcher, "HAS_CONSOLE", True):
+            self.assertNotIn("error.log", launcher.missing_parts(trouble))
+        with mock.patch.object(launcher, "HAS_CONSOLE", False):
+            self.assertIn("error.log", launcher.missing_parts(trouble))
 
 
 if __name__ == "__main__":

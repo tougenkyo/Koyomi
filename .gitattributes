@@ -1,6 +1,9 @@
 # 既定は自動判別。テキストはリポジトリ内で LF に揃える
 * text=auto
 
+# バッチは CRLF でないと cmd が読めない（中身は Shift-JIS）
+*.bat text eol=crlf
+
 # 画像・音声はバイナリとして扱う（差分を取らない）
 *.png binary
 *.ico binary
