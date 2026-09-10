@@ -293,7 +293,13 @@ class RepeatEditor(QWidget):
         pl.addRow(tr("鳴らす日"), self.on_date)
         self.stack.addWidget(page)
 
-        # 2: 曜日
+        # 2: 毎日
+        self.stack.addWidget(self._note(
+            tr("毎日、この時刻に鳴らします。決めることはありません。"
+               "特定の日を外したいときは、下の「鳴らさない日」で"
+               "指定してください。")))
+
+        # 3: 曜日
         page = QWidget()
         pl = QVBoxLayout(page)
         row = QHBoxLayout()
@@ -327,7 +333,7 @@ class RepeatEditor(QWidget):
         pl.addLayout(marks)
         self.stack.addWidget(page)
 
-        # 3: N 日おき
+        # 4: N 日おき
         page = QWidget()
         pl = QFormLayout(page)
         self.step_box = QSpinBox()
@@ -343,7 +349,7 @@ class RepeatEditor(QWidget):
         pl.addRow(tr("起点の日"), self.step_anchor)
         self.stack.addWidget(page)
 
-        # 4: 毎月・日付
+        # 5: 毎月・日付
         page = QWidget()
         pl = QFormLayout(page)
         self.dom_box = QComboBox()
@@ -355,7 +361,7 @@ class RepeatEditor(QWidget):
         pl.addRow(tr("毎月"), self.dom_box)
         self.stack.addWidget(page)
 
-        # 5: 毎月・第n曜日
+        # 6: 毎月・第n曜日
         page = QWidget()
         pl = QFormLayout(page)
         self.week_box = QComboBox()
@@ -372,7 +378,7 @@ class RepeatEditor(QWidget):
         pl.addRow(tr("曜日"), self.nth_weekday)
         self.stack.addWidget(page)
 
-        # 6: 毎年
+        # 7: 毎年
         page = QWidget()
         pl = QFormLayout(page)
         self.annual_date = QDateEdit(QDate(QDate.currentDate().year(),
@@ -382,7 +388,7 @@ class RepeatEditor(QWidget):
         pl.addRow(tr("毎年"), self.annual_date)
         self.stack.addWidget(page)
 
-        # 7: 鳴動／休止
+        # 8: 鳴動／休止
         page = QWidget()
         pl = QFormLayout(page)
         self.run_box = QSpinBox()

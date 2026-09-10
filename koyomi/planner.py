@@ -46,6 +46,9 @@ def day_matches(rule: RepeatRule, day: dt.date, almanac=None) -> bool:
     if cycle == Cycle.ON_DATE:
         return day == rule.anchor_date()
 
+    if cycle == Cycle.EVERY_DAY:
+        return True
+
     if cycle == Cycle.WEEKDAYS:
         if day.weekday() in rule.weekdays:
             return True
@@ -173,6 +176,8 @@ def repeat_digest(item: WakeItem, almanac=None) -> str:
     elif cycle == Cycle.ON_DATE:
         d = rule.anchor_date()
         text = tr("%d/%d に1回") % (d.month, d.day)
+    elif cycle == Cycle.EVERY_DAY:
+        text = tr("毎日")
     elif cycle == Cycle.WEEKDAYS:
         text = tr("毎週 ") + weekday_digest(rule.weekdays)
         if rule.add_marked_days and rule.mark_lists:

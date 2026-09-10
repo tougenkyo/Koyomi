@@ -182,6 +182,45 @@ class TimeField(unittest.TestCase):
         field.close()
 
 
+class RepeatPicker(unittest.TestCase):
+    """繰り返しの選択肢と、その入力欄の対応。"""
+
+    def setUp(self):
+        from koyomi.ui.editor import RepeatEditor
+        i18n.set_language("ja")
+        self.vault = Vault()
+        self.editor = RepeatEditor(WakeItem(), self.vault.almanac)
+
+    def test_every_choice_has_its_own_page(self):
+        # 並び順で頁を選んでいるので、数がずれると別の欄が出てしまう
+        self.assertEqual(self.editor.cycle_box.count(), len(list(Cycle)))
+        self.assertEqual(self.editor.stack.count(), len(list(Cycle)))
+        for index in range(self.editor.cycle_box.count()):
+            self.editor.cycle_box.setCurrentIndex(index)
+            self.assertEqual(self.editor.stack.currentIndex(), index)
+
+    def test_every_day_is_offered_on_its_own(self):
+        labels = [self.editor.cycle_box.itemText(i)
+                  for i in range(self.editor.cycle_box.count())]
+        self.assertIn("毎日", labels)
+        self.assertIn("曜日を指定", labels)
+
+    def test_choosing_every_day_needs_nothing_else(self):
+        self.editor.cycle_box.setCurrentIndex(list(Cycle).index(Cycle.EVERY_DAY))
+        rule = self.editor.value()
+        self.assertIs(rule.cycle, Cycle.EVERY_DAY)
+        self.assertEqual(rule.weekdays, [])
+        self.assertEqual(rule.anchor, "")
+
+    def test_it_opens_on_the_saved_choice(self):
+        from koyomi.models import RepeatRule
+        from koyomi.ui.editor import RepeatEditor
+        item = WakeItem(repeat=RepeatRule(cycle=Cycle.EVERY_DAY))
+        again = RepeatEditor(item, self.vault.almanac)
+        self.assertEqual(again.cycle_box.currentText(), "毎日")
+        self.assertIs(again.value().cycle, Cycle.EVERY_DAY)
+
+
 class SilentRun(unittest.TestCase):
     """画面を出さずに、ついでにやることだけ済ませるアラーム。"""
 

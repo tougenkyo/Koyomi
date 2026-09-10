@@ -26,6 +26,30 @@ class Repeats(unittest.TestCase):
     def setUp(self):
         self.almanac = Almanac()
 
+    def test_every_day_rings_every_day(self):
+        item = alarm(repeat=RepeatRule(cycle=Cycle.EVERY_DAY))
+        self.assertEqual(days(item, self.almanac, 5),
+                         ["2026/08/27", "2026/08/28", "2026/08/29",
+                          "2026/08/30", "2026/08/31"])
+
+    def test_every_day_still_steps_over_holidays(self):
+        # 2026/09/21 敬老の日・09/22 国民の休日・09/23 秋分の日
+        item = alarm(repeat=RepeatRule(cycle=Cycle.EVERY_DAY),
+                     dodge_holidays=True)
+        eve = dt.datetime(2026, 9, 19, 12, 0)
+        self.assertEqual(days(item, self.almanac, 3, after=eve),
+                         ["2026/09/20", "2026/09/24", "2026/09/25"])
+
+    def test_every_day_is_not_the_same_as_a_single_shot(self):
+        # 見た目は「次に来る時刻」で同じでも、鳴らしたあとの扱いが違う
+        from koyomi.director import RingDirector
+        from koyomi.vault import Vault
+        vault = Vault()
+        for cycle, still_on in ((Cycle.SINGLE, False), (Cycle.EVERY_DAY, True)):
+            item = alarm(repeat=RepeatRule(cycle=cycle))
+            RingDirector(vault).settle_after_stop(item)
+            self.assertIs(item.active, still_on, cycle.value)
+
     def test_weekdays_skips_the_weekend(self):
         item = alarm(repeat=RepeatRule(cycle=Cycle.WEEKDAYS,
                                        weekdays=[0, 1, 2, 3, 4]))
@@ -119,8 +143,10 @@ class Exclusions(unittest.TestCase):
     def test_can_skip_only_repeating_alarms(self):
         once = alarm(repeat=RepeatRule(cycle=Cycle.SINGLE))
         weekly = alarm(repeat=RepeatRule(cycle=Cycle.WEEKDAYS, weekdays=[0]))
+        daily = alarm(repeat=RepeatRule(cycle=Cycle.EVERY_DAY))
         self.assertFalse(planner.can_skip(once))
         self.assertTrue(planner.can_skip(weekly))
+        self.assertTrue(planner.can_skip(daily))
         weekly.active = False
         self.assertFalse(planner.can_skip(weekly))
 
@@ -199,6 +225,24 @@ class Wording(unittest.TestCase):
                      dodge_holidays=True)
         self.assertEqual(planner.repeat_digest(item, almanac),
                          "毎週 平日（祝日を除く）")
+
+    def test_repeat_digest_says_every_day_plainly(self):
+        almanac = Almanac()
+        item = alarm(repeat=RepeatRule(cycle=Cycle.EVERY_DAY))
+        self.assertEqual(planner.repeat_digest(item, almanac), "毎日")
+        item.dodge_holidays = True
+        self.assertEqual(planner.repeat_digest(item, almanac),
+                         "毎日（祝日を除く）")
+
+    def test_every_day_reads_differently_from_all_seven_weekdays(self):
+        # 同じ日に鳴っても、一覧の見え方で区別が付くこと
+        almanac = Almanac()
+        daily = alarm(repeat=RepeatRule(cycle=Cycle.EVERY_DAY))
+        spelled = alarm(repeat=RepeatRule(cycle=Cycle.WEEKDAYS,
+                                          weekdays=list(range(7))))
+        self.assertEqual(days(daily, almanac, 3), days(spelled, almanac, 3))
+        self.assertNotEqual(planner.repeat_digest(daily, almanac),
+                            planner.repeat_digest(spelled, almanac))
 
 
 if __name__ == "__main__":

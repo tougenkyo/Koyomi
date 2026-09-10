@@ -23,6 +23,7 @@ class Cycle(str, Enum):
 
     SINGLE = "single"            # 繰り返さない（次に来る設定時刻に一度だけ）
     ON_DATE = "on_date"          # 指定した 1 日だけ
+    EVERY_DAY = "every_day"      # 毎日
     WEEKDAYS = "weekdays"        # 選んだ曜日ごと
     EVERY_N_DAYS = "every_n"     # 起点日から N 日周期
     DAY_OF_MONTH = "day_of_mo"   # 毎月 x 日（0 は月末）
@@ -38,6 +39,7 @@ class Cycle(str, Enum):
 _CYCLE_LABELS = {
     Cycle.SINGLE: "繰り返さない",
     Cycle.ON_DATE: "日付を指定",
+    Cycle.EVERY_DAY: "毎日",
     Cycle.WEEKDAYS: "曜日を指定",
     Cycle.EVERY_N_DAYS: "N日おき",
     Cycle.DAY_OF_MONTH: "毎月・日付",

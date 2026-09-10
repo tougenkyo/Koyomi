@@ -66,6 +66,11 @@ WORDS = {
     "%s曜日": "%s",
     "曜日": "Weekday",
     "毎日": "Every day",
+    "毎日、この時刻に鳴らします。決めることはありません。"
+    "特定の日を外したいときは、下の「鳴らさない日」で"
+    "指定してください。":
+        "It rings at this time every day. Nothing to set up here. "
+        "To leave certain days out, use the panel below.",
     "平日": "Weekdays",
     "週末": "Weekends",
     "曜日未選択": "no weekday chosen",
