@@ -4,8 +4,11 @@ import os
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
-from koyomi.actions import LaunchPlan, check, is_program, run
+from koyomi.actions import (LaunchPlan, check, is_program,
+                            looks_like_a_path, run, run_now,
+                            split_arguments)
 from koyomi.models import (Cycle, Guard, GuardPlan, ListOrder, RepeatRule,
                            SnoozeOrigin, ToneKind, Toughness, WakeItem,
                            as_enum)
@@ -123,6 +126,101 @@ class Store(unittest.TestCase):
             fh.write('{"hello": 1}')
         with self.assertRaises(ValueError):
             Vault().read_backup(self.path)
+
+
+BS = chr(92)
+
+
+def win(*parts) -> str:
+    """Windows のパスを、逃がし記号を書かずに組み立てる。"""
+    return BS.join(parts)
+
+
+class Arguments(unittest.TestCase):
+    """引数の並びを 1 つずつに分けるところ。"""
+
+    def test_a_windows_path_keeps_its_separators(self):
+        # shlex.split は逆斜線を逃がし記号として食べてしまう
+        script = win("D:", "XAMPP", "htdocs", "DMM", "stock_init.php")
+        self.assertEqual(split_arguments(script + " --station"),
+                         [script, "--station"])
+
+    def test_quotes_still_hold_a_path_with_spaces(self):
+        folder = win("D:", "Program Files", "app", "go.php")
+        self.assertEqual(split_arguments('"%s" -v' % folder), [folder, "-v"])
+
+    def test_a_hash_is_not_a_comment(self):
+        self.assertEqual(split_arguments("--tag #asa"), ["--tag", "#asa"])
+
+    def test_nothing_in_nothing_out(self):
+        self.assertEqual(split_arguments(""), [])
+        self.assertEqual(split_arguments("   "), [])
+
+    def test_an_unclosed_quote_is_still_an_error(self):
+        with self.assertRaises(ValueError):
+            split_arguments('"open')
+
+    def test_what_counts_as_a_path(self):
+        self.assertTrue(looks_like_a_path(win("D:", "x", "a.php")))
+        self.assertTrue(looks_like_a_path("D:/x/a.php"))
+        self.assertTrue(looks_like_a_path(BS * 2 + win("server", "share")))
+        for plain in ("--station", "-v", "2026-09-11", "a.php", ""):
+            self.assertFalse(looks_like_a_path(plain), plain)
+
+    def test_a_mistyped_path_in_the_arguments_is_pointed_out(self):
+        here = str(pathlib.Path(__file__).resolve())
+        plan = LaunchPlan(enabled=True, program="C:/Windows/notepad.exe",
+                          arguments='"%s" --ok' % here)
+        self.assertEqual(check(plan), "")
+        plan.arguments = '"%s" --ok' % (here + ".nope")
+        self.assertIn("見つかりません", check(plan))
+
+    def test_the_launcher_gets_the_path_whole(self):
+        script = win("D:", "XAMPP", "htdocs", "DMM", "stock_init.php")
+        plan = LaunchPlan(enabled=True, program="C:/Windows/notepad.exe",
+                          arguments=script + " --station")
+        with mock.patch("koyomi.actions._launch", return_value=True) as opened:
+            run(plan, at_stop=False)
+        self.assertEqual(opened.call_args[0][1], [script, "--station"])
+
+
+class QuietLaunch(unittest.TestCase):
+    """画面を出さないアラームから動かしたとき。"""
+
+    def _fire(self, quiet):
+        plan = LaunchPlan(enabled=True, program="C:/Windows/notepad.exe",
+                          arguments="--x")
+        with mock.patch("koyomi.actions.subprocess.Popen") as opened, \
+             mock.patch("koyomi.actions._open_work_log",
+                        return_value=None) as book:
+            if quiet:
+                run_now(plan)
+            else:
+                run(plan, at_stop=False)
+        return opened.call_args, book
+
+    def test_a_quiet_run_hides_the_window_and_keeps_the_output(self):
+        import koyomi.actions as actions
+        call, book = self._fire(quiet=True)
+        self.assertEqual(call[1].get("creationflags"), actions.NO_WINDOW)
+        self.assertIs(call[1].get("stderr"), actions.subprocess.STDOUT)
+        book.assert_called_once()
+
+    def test_a_plain_run_is_left_as_it_was(self):
+        call, book = self._fire(quiet=False)
+        self.assertNotIn("creationflags", call[1])
+        self.assertNotIn("stdout", call[1])
+        book.assert_not_called()
+
+    def test_the_log_sits_with_the_saved_data(self):
+        from koyomi.actions import work_log_path
+        self.assertTrue(work_log_path().endswith("actions.log"))
+
+    def test_a_place_it_cannot_write_to_is_not_fatal(self):
+        from koyomi.actions import _open_work_log
+        with mock.patch("koyomi.actions.work_log_path",
+                        side_effect=OSError("書けません")):
+            self.assertIsNone(_open_work_log(["a.exe"]))
 
 
 class Companion(unittest.TestCase):

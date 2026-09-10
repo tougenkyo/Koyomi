@@ -387,6 +387,8 @@ WORDS = {
     "いつ": "When",
     "起動するファイルを選ぶ": "Choose a file to start",
     "https://…（省略可）": "https://… (optional)",
+    "引数に書かれたこのファイルが見つかりません: %s":
+        "This file named in the arguments is not there: %s",
     "指定されたファイルが見つかりません: %s": "That file does not exist: %s",
     "URL は http:// または https:// で始めてください。":
         "The URL must start with http:// or https://.",
