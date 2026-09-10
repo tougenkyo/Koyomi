@@ -110,6 +110,83 @@ class Trouble(unittest.TestCase):
             warnings.showwarning = keep
 
 
+def fake_python(room, name, with_parts=True):
+    """python が入っているように見えるフォルダを、その場ででっち上げる。"""
+    folder = pathlib.Path(room) / name
+    shelf = folder / "Lib" / "site-packages"
+    shelf.mkdir(parents=True, exist_ok=True)
+    if with_parts:
+        for part in launcher.NEEDED:
+            (shelf / part).mkdir(exist_ok=True)
+    for exe in ("python.exe", "pythonw.exe"):
+        (folder / exe).write_bytes(b"")
+    return str(folder)
+
+
+class HandingOver(unittest.TestCase):
+    """関連付けが別の Python に取られていたときの逃げ道。"""
+
+    def setUp(self):
+        self.room = tempfile.TemporaryDirectory()
+        self.addCleanup(self.room.cleanup)
+
+    def _rooms(self, *folders):
+        return mock.patch.object(launcher, "python_rooms",
+                                 return_value=list(folders))
+
+    def test_it_picks_the_one_that_has_the_parts(self):
+        bare = fake_python(self.room.name, "Empty", with_parts=False)
+        full = fake_python(self.room.name, "Full")
+        with self._rooms(bare, full),              mock.patch.object(launcher, "HAS_CONSOLE", False):
+            picked = launcher.a_python_that_works()
+        self.assertEqual(picked, os.path.join(full, "pythonw.exe"))
+
+    def test_it_skips_the_python_that_just_failed(self):
+        full = fake_python(self.room.name, "Full")
+        with self._rooms(full),              mock.patch.object(sys, "executable",
+                               os.path.join(full, "pythonw.exe")):
+            self.assertIsNone(launcher.a_python_that_works())
+
+    def test_a_console_start_hands_over_to_a_console_python(self):
+        full = fake_python(self.room.name, "Full")
+        with self._rooms(full), mock.patch.object(launcher, "HAS_CONSOLE", True):
+            self.assertEqual(launcher.a_python_that_works(),
+                             os.path.join(full, "python.exe"))
+
+    def test_nobody_has_the_parts(self):
+        bare = fake_python(self.room.name, "Empty", with_parts=False)
+        with self._rooms(bare):
+            self.assertIsNone(launcher.a_python_that_works())
+
+    def test_the_places_it_looks_are_real_folders(self):
+        for folder in launcher.python_rooms():
+            self.assertTrue(os.path.isdir(folder), folder)
+
+    def test_the_handover_carries_the_arguments_and_the_flag(self):
+        with mock.patch("subprocess.Popen") as opened,              mock.patch.object(sys, "argv", ["run.pyw", "--minimized"]):
+            self.assertTrue(launcher.hand_over(r"C:\somewhere\pythonw.exe"))
+        command = opened.call_args[0][0]
+        self.assertEqual(command[0], r"C:\somewhere\pythonw.exe")
+        self.assertTrue(command[1].endswith("run.pyw"))
+        self.assertIn("--minimized", command)
+        self.assertEqual(command.count(launcher.HANDOVER_FLAG), 1)
+
+    def test_the_flag_is_not_doubled_on_a_second_pass(self):
+        with mock.patch("subprocess.Popen") as opened,              mock.patch.object(sys, "argv",
+                               ["run.pyw", launcher.HANDOVER_FLAG]):
+            launcher.hand_over("pythonw.exe")
+        command = opened.call_args[0][0]
+        self.assertEqual(command.count(launcher.HANDOVER_FLAG), 1)
+
+    def test_a_failed_handover_is_reported_not_raised(self):
+        with mock.patch("subprocess.Popen", side_effect=OSError("だめ")):
+            self.assertFalse(launcher.hand_over("pythonw.exe"))
+
+    def test_the_entry_only_tries_once(self):
+        source = ENTRY.read_text(encoding="utf-8")
+        self.assertIn("if HANDOVER_FLAG not in sys.argv:", source)
+
+
 class MissingParts(unittest.TestCase):
     """関連付けが別の Python に取られていたときの言い分け。"""
 
@@ -117,7 +194,7 @@ class MissingParts(unittest.TestCase):
         text = launcher.missing_parts(ImportError("No module named 'PySide6'"))
         self.assertIn("PySide6", text)
         self.assertIn(sys.executable, text)
-        self.assertIn("make_shortcut", text)
+        self.assertIn("install.bat", text)
 
 
 class Shortcut(unittest.TestCase):

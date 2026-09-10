@@ -46,10 +46,16 @@ python tools/make_shortcut.py
 | `pythonw run.pyw` | 黒い窓を出さずに始める |
 | `python run.pyw` | コンソールを付けて始める（不具合を追うとき） |
 
-`run.pyw` を直接ダブルクリックしても開きますが、拡張子 `.pyw` の関連付けが
-Microsoft Store の Python など別の Python に取られている場合は、
-部品の入っていない Python で開こうとして失敗します。
-ショートカットなら Python を名指しできるので、その心配がありません。
+`run.pyw` を直接ダブルクリックしても開きます。
+拡張子 `.pyw` の関連付けが Microsoft Store の Python など別の Python に
+取られている場合は、部品の入っている Python をこのパソコンの中から探して、
+そちらへ渡し直して開きます（`PATH` → レジストリ → よくある置き場所 の順）。
+見つからなかったときだけ、何が足りないかをお知らせします。
+
+渡し直す分だけ起動が少し遅くなります。気になるときは関連付けを直してください。
+`run.pyw` を右クリック → **プログラムから開く** → **別のプログラムを選択** →
+`pythonw.exe`（`%LOCALAPPDATA%\Programs\Python\Python3xx\` の中）を選び、
+**常にこのアプリを使う** に印を付けます。
 
 黒い窓を出さずに始めたときは、つまずいた記録だけが
 `%APPDATA%\Koyomi\error.log` に残ります。何事も無ければこのファイルはできません。

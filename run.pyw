@@ -24,6 +24,11 @@ LOG_NAME = "error.log"
 LINES = chr(10)                 # お知らせの改行
 LOG_LIMIT = 200 * 1024          # これを超えたら古い分は捨てて書き直す
 
+# 拡張子の関連付けが別の Python に取られていることがある。そのときは
+# 部品の揃っている Python を探して渡し直す。一度だけにする目印。
+HANDOVER_FLAG = "--handed-over"
+NEEDED = ("PySide6", "jpholiday", "pygame")
+
 # pythonw で開くと出力先が無い。書き換える前に見分けておく。
 HAS_CONSOLE = sys.stderr is not None
 
@@ -113,6 +118,93 @@ def on_trouble(kind, value, chain) -> None:
              % (kind.__name__, value, log_path()))
 
 
+def _from_registry() -> list:
+    """入れたときにレジストリへ残る置き場所。"""
+    if not sys.platform.startswith("win"):
+        return []
+    import winreg
+    rooms = []
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(root, r"Software\Python\PythonCore") as core:
+                for i in range(winreg.QueryInfoKey(core)[0]):
+                    tag = winreg.EnumKey(core, i)
+                    try:
+                        with winreg.OpenKey(core, tag + r"\InstallPath") as key:
+                            rooms.append(winreg.QueryValueEx(key, "")[0])
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    return rooms
+
+
+def python_rooms() -> list:
+    """このパソコンにある Python の置き場所を、心当たりの順に挙げる。"""
+    import glob
+    import shutil
+
+    found, seen = [], set()
+
+    def offer(folder):
+        if not folder:
+            return
+        folder = os.path.normpath(folder)
+        key = os.path.normcase(folder)
+        if key not in seen and os.path.isdir(folder):
+            seen.add(key)
+            found.append(folder)
+
+    for name in ("pythonw", "python"):          # まず PATH に通っているもの
+        offer(os.path.dirname(shutil.which(name) or ""))
+    for room in _from_registry():
+        offer(room)
+    for pattern in (r"%LOCALAPPDATA%\Programs\Python\Python3*",
+                    r"%ProgramFiles%\Python3*",
+                    r"C:\Python3*"):           # よくある置き場所。新しい順に見る
+        for folder in sorted(glob.glob(os.path.expandvars(pattern)), reverse=True):
+            offer(folder)
+    return found
+
+
+def a_python_that_works():
+    """必要な部品が揃っている python を探す。見つからなければ None。
+
+    動かして確かめると 1 つにつき 1 秒近くかかる。置き場所を見るだけなら
+    ほとんど待たずに済むので、site-packages に居るかどうかで判断する。
+    """
+    here = os.path.normcase(os.path.dirname(os.path.abspath(sys.executable)))
+    for folder in python_rooms():
+        if os.path.normcase(folder) == here:
+            continue                            # いま失敗したところ
+        room = os.path.join(folder, "Lib", "site-packages")
+        if not all(os.path.exists(os.path.join(room, name)) for name in NEEDED):
+            continue
+        # 黒い窓を出さずに開いたのなら、渡す先も窓を出さないものにする
+        if HAS_CONSOLE:
+            order = ("python.exe", "pythonw.exe")
+        else:
+            order = ("pythonw.exe", "python.exe")
+        for name in order:
+            exe = os.path.join(folder, name)
+            if os.path.exists(exe):
+                return exe
+    return None
+
+
+def hand_over(exe: str) -> bool:
+    """見つけた python にそのまま渡す。開けたら True。"""
+    import subprocess
+    here = os.path.abspath(__file__)
+    rest = [a for a in sys.argv[1:] if a != HANDOVER_FLAG]
+    try:
+        subprocess.Popen([exe, here] + rest + [HANDOVER_FLAG],
+                         cwd=os.path.dirname(here), shell=False)
+        return True
+    except OSError:
+        return False
+
+
 def missing_parts(trouble) -> str:
     """部品が足りないときの言い分け。どの Python で開いたかまで伝える。"""
     said = [
@@ -123,8 +215,8 @@ def missing_parts(trouble) -> str:
         "開こうとした Python：",
         sys.executable,
         "",
-        "install.bat を実行して入れ直すか、",
-        "tools/make_shortcut.py でショートカットを作ってください。",
+        "このパソコンの中に、部品の揃った Python が見つかりませんでした。",
+        "install.bat を実行して入れてください。",
     ]
     if not HAS_CONSOLE:                 # 目の前に出ないので、置き場所を添える
         said += ["", "詳しい記録：", log_path()]
@@ -146,7 +238,17 @@ def main() -> int:
         from koyomi.ui.app import run
     except ImportError as trouble:
         # 拡張子の関連付けが別の Python に取られていると、ここへ来る。
-        # 何が足りないかだけでは直しようがないので、どれで開いたかも伝える。
+        # 部品の揃っている python が居れば、黙ってそちらへ渡して開き直す。
+        if HANDOVER_FLAG not in sys.argv:
+            spare = a_python_that_works()
+            if spare and hand_over(spare):
+                # 片付いた話なので控えには残さない。
+                # 「error.log がある＝つまずいた」の目印を濁らせないため。
+                if HAS_CONSOLE:
+                    print("この Python に部品が無いので、%s へ渡しました。" % spare,
+                          file=sys.stderr)
+                return 0
+        # 渡す先が無いときだけ、記録に残して何が足りないかを伝える。
         sys.stderr.write(traceback.format_exc())
         announce(missing_parts(trouble))
         return 1
