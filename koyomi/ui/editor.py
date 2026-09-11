@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 
 from PySide6.QtCore import QDate, Qt, QTime, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                                QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
-                               QLabel, QLineEdit, QPushButton,
+                               QLabel, QLineEdit, QMessageBox, QPushButton,
                                QScrollArea, QSlider, QSpinBox, QStackedWidget,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from ..actions import LaunchPlan, check as check_launch
+from ..actions import (LaunchPlan, check as check_launch, run_now,
+                       split_arguments, work_log_path)
 from ..models import (WEEKDAY_LABELS, Cycle, Guard, GuardPlan, SnoozeOrigin,
                       SoundPlan, ToneKind, Toughness, WakeItem, as_enum)
 from ..player import AUDIO_SUFFIXES
@@ -746,6 +748,19 @@ class AlarmEditor(QDialog):
         self.launch_note.setStyleSheet("color: %s;" % theme.WARN)
         lay.addWidget(self.launch_note)
 
+        # 時刻を待たずに確かめられないと、真夜中のアラームは試しようがない
+        trial = QHBoxLayout()
+        self.launch_try = QPushButton(tr("いま試す"))
+        self.launch_try.setProperty("tone", "ghost")
+        self.launch_try.clicked.connect(self._try_launch)
+        trial.addWidget(self.launch_try)
+        self.launch_log = QPushButton(tr("実行の記録"))
+        self.launch_log.setProperty("tone", "ghost")
+        self.launch_log.clicked.connect(self._show_work_log)
+        trial.addWidget(self.launch_log)
+        trial.addStretch(1)
+        lay.addLayout(trial)
+
         caution = QLabel(tr("この設定はアプリを起動します。バックアップから読み込んだ"
                          "アラームの連動動作は、内容を確認して承認するまで動きません。"))
         caution.setWordWrap(True)
@@ -773,7 +788,7 @@ class AlarmEditor(QDialog):
         self.launch_on.toggled.connect(
             lambda on: [w.setEnabled(on) for w in
                         (box, self.launch_program, self.launch_args,
-                         self.launch_url, self.launch_when)])
+                         self.launch_url, self.launch_when, self.launch_try)])
         self.launch_on.toggled.emit(self.launch_on.isChecked())
         self._check_launch()
 
@@ -795,6 +810,62 @@ class AlarmEditor(QDialog):
         self.ring_look_group.setVisible(not quiet)
         self.silent_notify.setEnabled(quiet)
         self.launch_form.setRowVisible(self.launch_when, not quiet)
+
+    def _try_launch(self) -> None:
+        """いま、その場で動かしてみる。
+
+        アラームの時刻まで待たないと確かめられないのでは、
+        真夜中に動かす指定は試しようがない。
+        """
+        plan = self._launch_value()
+        if not plan.has_work():
+            self.launch_note.setText(tr("試すものがまだ指定されていません。"))
+            return
+        trouble = check_launch(plan)
+        if trouble:
+            self.launch_note.setText(trouble)
+            return
+        quiet = self.silent_on.isChecked()
+        note = run_now(plan, quietly=quiet)
+        QMessageBox.information(self, tr("連動動作を試しました"),
+                                "\n".join(self._trial_report(plan, note, quiet)))
+
+    def _trial_report(self, plan: LaunchPlan, note: str, quiet: bool) -> list:
+        """試した結果。渡した引数を 1 つずつ見せるのが肝心なところ。"""
+        lines = [note or tr("動かすものがありませんでした。")]
+        program = plan.program.strip()
+        if program:
+            lines.append("")
+            lines.append(tr("開くもの: %s") % program)
+            try:
+                args = split_arguments(plan.arguments)
+            except ValueError:
+                args = []
+            for number, arg in enumerate(args, 1):
+                lines.append(tr("引数 %d: %s") % (number, arg))
+            lines.append(tr("作業フォルダ: %s")
+                         % (os.path.dirname(program) or tr("（指定なし）")))
+        if plan.url.strip():
+            lines.append("")
+            lines.append(tr("ページ: %s") % plan.url.strip())
+        if quiet and program:
+            lines.append("")
+            lines.append(tr("画面を出さない指定なので、出しものはここに残ります:"))
+            lines.append(work_log_path())
+        return lines
+
+    def _show_work_log(self) -> None:
+        """画面を出さずに動かしたときの控えを開く。"""
+        path = work_log_path()
+        if not os.path.exists(path):
+            QMessageBox.information(
+                self, tr("実行の記録"),
+                tr("まだ記録はありません。画面を出さずに実行したときだけ残ります。"))
+            return
+        if hasattr(os, "startfile"):
+            os.startfile(path)
+        else:                                   # pragma: no cover - Windows 以外
+            QMessageBox.information(self, tr("実行の記録"), path)
 
     def _pick_program(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, tr("起動するファイルを選ぶ"))

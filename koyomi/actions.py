@@ -224,10 +224,12 @@ def run(plan: LaunchPlan, at_stop: bool, quietly: bool = False) -> str:
     return " ".join(notes)
 
 
-def run_now(plan: LaunchPlan) -> str:
+def run_now(plan: LaunchPlan, quietly: bool = True) -> str:
     """時機を問わず実行する。画面を出さないアラーム用。
 
     画面が出ないと「鳴り始め」も「止めたとき」も無いので、
     どちらの指定でも、時刻が来た時点で同じように動かす。
+
+    ``quietly`` を下ろすと黒い窓を隠さない。編集画面から試すときに使う。
     """
-    return run(plan, at_stop=bool(plan.at_stop), quietly=True)
+    return run(plan, at_stop=bool(plan.at_stop), quietly=quietly)

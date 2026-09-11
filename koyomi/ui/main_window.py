@@ -604,8 +604,9 @@ class MainWindow(QMainWindow):
 
     def _preview_silence(self, item: WakeItem) -> None:
         """画面を出さないアラームの試し。通知の出かたを見るためのもの。"""
-        message = tr("「%s」は画面を出さずに実行します"
-                     "（試しなので連動動作は動かしません）。") % item.display_title()
+        message = tr("「%s」は画面を出さずに実行します。連動動作は"
+                     "編集画面の「連動」タブにある「いま試す」で確かめられます。"
+                     ) % item.display_title()
         self.flash_status(message)
         if item.notify_silent_run and self.tray.isVisible():
             self.tray.showMessage(APP_TITLE, message,

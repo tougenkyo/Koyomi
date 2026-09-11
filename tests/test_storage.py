@@ -212,6 +212,15 @@ class QuietLaunch(unittest.TestCase):
         self.assertNotIn("stdout", call[1])
         book.assert_not_called()
 
+    def test_a_trial_can_ask_to_keep_the_window(self):
+        plan = LaunchPlan(enabled=True, program="C:/Windows/notepad.exe",
+                          arguments="--x")
+        with mock.patch("koyomi.actions.subprocess.Popen") as opened, \
+             mock.patch("koyomi.actions._open_work_log") as book:
+            run_now(plan, quietly=False)
+        self.assertNotIn("creationflags", opened.call_args[1])
+        book.assert_not_called()
+
     def test_the_log_sits_with_the_saved_data(self):
         from koyomi.actions import work_log_path
         self.assertTrue(work_log_path().endswith("actions.log"))

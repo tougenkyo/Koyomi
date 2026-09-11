@@ -306,6 +306,86 @@ class SilentRun(unittest.TestCase):
         self.assertTrue(again.items[0].notify_silent_run)
 
 
+class TryTheCompanionNow(unittest.TestCase):
+    """連動動作を、時刻を待たずにその場で試せること。"""
+
+    def setUp(self):
+        from koyomi.ui.editor import AlarmEditor
+        i18n.set_language("ja")
+        self.vault = sample_vault()
+        self.editor = AlarmEditor(self.vault.items[0], self.vault,
+                                  quiet_engine())
+        self.editor.launch_on.setChecked(True)
+        self.editor.launch_program.setText("C:/Windows/notepad.exe")
+        self.editor.launch_args.setText("--x")
+
+    def _press(self):
+        from koyomi.ui import editor as ed
+        with mock.patch.object(ed, "run_now",
+                               return_value="notepad.exe を起動しました。") as ran, \
+             mock.patch.object(ed.QMessageBox, "information") as shown:
+            self.editor._try_launch()
+        return ran, shown
+
+    def test_the_button_waits_for_the_companion_to_be_switched_on(self):
+        self.editor.launch_on.setChecked(False)
+        self.assertFalse(self.editor.launch_try.isEnabled())
+        self.editor.launch_on.setChecked(True)
+        self.assertTrue(self.editor.launch_try.isEnabled())
+
+    def test_it_runs_what_is_written_on_the_screen(self):
+        ran, shown = self._press()
+        ran.assert_called_once()
+        self.assertEqual(ran.call_args[0][0].program, "C:/Windows/notepad.exe")
+        self.assertTrue(shown.called, "結果が出なかった")
+
+    def test_a_silent_alarm_is_tried_the_same_quiet_way(self):
+        self.editor.silent_on.setChecked(True)
+        ran, _ = self._press()
+        self.assertTrue(ran.call_args[1]["quietly"])
+        self.editor.silent_on.setChecked(False)
+        ran, _ = self._press()
+        self.assertFalse(ran.call_args[1]["quietly"])
+
+    def test_nothing_to_try_is_said_plainly(self):
+        self.editor.launch_program.setText("")
+        self.editor.launch_args.setText("")
+        ran, _ = self._press()
+        self.assertFalse(ran.called)
+        self.assertIn("指定されていません", self.editor.launch_note.text())
+
+    def test_a_setting_that_cannot_work_stops_the_trial(self):
+        self.editor.launch_program.setText("Z:/どこにもない.exe")
+        ran, _ = self._press()
+        self.assertFalse(ran.called, "見つからないものを動かそうとした")
+        self.assertIn("見つかりません", self.editor.launch_note.text())
+
+    def test_the_report_shows_each_argument_whole(self):
+        from koyomi.actions import LaunchPlan
+        script = chr(92).join(("D:", "XAMPP", "htdocs", "test.php"))
+        plan = LaunchPlan(enabled=True, program="C:/Windows/notepad.exe",
+                          arguments=script + " --station")
+        lines = self.editor._trial_report(plan, "動かしました。", quiet=False)
+        self.assertTrue(any(line.endswith(script) for line in lines),
+                        "引数のパスが丸ごと出ていない: %r" % lines)
+        self.assertTrue(any(line.endswith("--station") for line in lines))
+
+    def test_the_quiet_report_points_at_the_log(self):
+        from koyomi.actions import LaunchPlan
+        plan = LaunchPlan(enabled=True, program="C:/Windows/notepad.exe")
+        lines = self.editor._trial_report(plan, "動かしました。", quiet=True)
+        self.assertTrue(any("actions.log" in line for line in lines))
+
+    def test_the_log_button_says_so_when_there_is_nothing_yet(self):
+        from koyomi.ui import editor as ed
+        with mock.patch.object(ed.os.path, "exists", return_value=False), \
+             mock.patch.object(ed.QMessageBox, "information") as shown, \
+             mock.patch.object(ed.os, "startfile", create=True) as opened:
+            self.editor._show_work_log()
+        self.assertFalse(opened.called, "無い記録を開こうとした")
+        self.assertIn("まだ記録はありません", shown.call_args[0][2])
+
+
 class SilenceHidesWhatDoesNotApply(unittest.TestCase):
     """画面を出さない設定にすると、関わりのない欄が引っ込む。"""
 

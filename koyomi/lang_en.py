@@ -762,9 +762,24 @@ WORDS = {
         "The timing choice above is not used; it runs when the time comes.",
     "「%s」を画面を出さずに実行しました。":
         "Ran \"%s\" without showing anything.",
-    "「%s」は画面を出さずに実行します（試しなので連動動作は動かしません）。":
-        "\"%s\" runs without showing anything "
-        "(this is only a try, so the companion action stays put).",
+    "「%s」は画面を出さずに実行します。連動動作は編集画面の「連動」タブにある"
+    "「いま試す」で確かめられます。":
+        "\"%s\" runs without showing anything. To check the companion action, "
+        "use \"Try it now\" on the \"Companion\" tab of the edit screen.",
+    "いま試す": "Try it now",
+    "実行の記録": "Run log",
+    "連動動作を試しました": "Tried the companion action",
+    "試すものがまだ指定されていません。": "There is nothing to try yet.",
+    "動かすものがありませんでした。": "There was nothing to run.",
+    "開くもの: %s": "Opens: %s",
+    "引数 %d: %s": "Argument %d: %s",
+    "作業フォルダ: %s": "Working folder: %s",
+    "（指定なし）": "(not set)",
+    "ページ: %s": "Page: %s",
+    "画面を出さない指定なので、出しものはここに残ります:":
+        "It runs without a screen, so its output is kept here:",
+    "まだ記録はありません。画面を出さずに実行したときだけ残ります。":
+        "No log yet. One is kept only when something runs without a screen.",
     "画面なし": "No screen",
 
     # ---- 終了処理・その他 --------------------------------------------------
