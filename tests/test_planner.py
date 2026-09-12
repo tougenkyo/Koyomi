@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 
-from koyomi import planner
+from koyomi import i18n, planner
 from koyomi.almanac import Almanac
 from koyomi.models import Cycle, RepeatRule, WakeItem
 
@@ -149,6 +149,168 @@ class Exclusions(unittest.TestCase):
         self.assertTrue(planner.can_skip(daily))
         weekly.active = False
         self.assertFalse(planner.can_skip(weekly))
+
+
+# 2026/09/10 木・09/13 日・09/17 木・09/20 日
+SATURDAY = dt.datetime(2026, 9, 12, 10, 0)
+
+
+def shipping_day(**kw) -> WakeItem:
+    """木・日の 03:00。"""
+    return alarm(hour=3, minute=0,
+                 repeat=RepeatRule(cycle=Cycle.WEEKDAYS, weekdays=[3, 6]), **kw)
+
+
+class SkipOnce(unittest.TestCase):
+    """「次の 1 回だけ飛ばす」は、決まった日の 1 回だけを飛ばす。"""
+
+    def setUp(self):
+        i18n.set_language("ja")
+        self.almanac = Almanac()
+
+    def armed(self) -> WakeItem:
+        item = shipping_day()
+        self.assertTrue(planner.arm_skip(item, self.almanac, SATURDAY))
+        return item
+
+    def test_arming_names_the_day_it_skips(self):
+        item = self.armed()
+        self.assertEqual(item.skip_on, "2026-09-13")
+        self.assertEqual(planner.next_time(item, self.almanac, SATURDAY),
+                         dt.datetime(2026, 9, 17, 3, 0))
+
+    def test_once_that_day_is_past_the_next_one_is_left_alone(self):
+        # 以前は「日曜 9/20」を返していた。木曜 9/17 まで飛ばしてしまう
+        item = self.armed()
+        self.assertEqual(
+            planner.next_time(item, self.almanac, dt.datetime(2026, 9, 13, 4, 10)),
+            dt.datetime(2026, 9, 17, 3, 0))
+
+    def test_it_is_over_exactly_at_the_skipped_time(self):
+        item = self.armed()
+        self.assertFalse(planner.skip_is_over(item, dt.datetime(2026, 9, 13, 2, 59, 59)))
+        self.assertTrue(planner.skip_is_over(item, dt.datetime(2026, 9, 13, 3, 0)))
+
+    def test_the_card_says_which_day(self):
+        self.assertEqual(planner.skip_label(self.armed()), "9/13(日) は飛ばす")
+
+    def test_the_day_survives_saving_but_not_copying(self):
+        item = self.armed()
+        self.assertEqual(WakeItem.from_dict(item.to_dict()).skip_on, "2026-09-13")
+        copy = item.copy_as_new()
+        self.assertFalse(copy.skip_once)
+        self.assertEqual(copy.skip_on, "")
+
+    def test_old_saved_skips_point_at_the_one_after_the_last_ring(self):
+        from koyomi.vault import Vault
+        saved = shipping_day(skip_once=True,
+                             last_fired_at="2026-09-10T03:00:38").to_dict()
+        del saved["skip_on"]                     # 0.9.010 までの保存形式
+        vault = Vault()
+        vault.apply({"items": [saved]})
+        self.assertEqual(vault.items[0].skip_on, "2026-09-13")
+
+    def test_old_skips_that_never_rang_count_from_when_the_app_last_ran(self):
+        from koyomi.vault import Vault
+        saved = shipping_day(skip_once=True).to_dict()
+        del saved["skip_on"]
+        vault = Vault()
+        vault.apply({"items": [saved], "last_seen": "2026-09-12T23:30:00"})
+        self.assertEqual(vault.items[0].skip_on, "2026-09-13")
+
+    def test_an_edit_keeps_the_same_day(self):
+        item = self.armed()
+        was = planner.skip_moment(item)
+        item.title = "名前だけ変えた"
+        planner.carry_skip(item, True, was, self.almanac, SATURDAY)
+        self.assertEqual(item.skip_on, "2026-09-13")
+
+    def test_an_edit_that_drops_that_day_skips_the_new_next_one(self):
+        item = self.armed()
+        was = planner.skip_moment(item)
+        item.repeat = RepeatRule(cycle=Cycle.WEEKDAYS, weekdays=[0])   # 月曜だけ
+        planner.carry_skip(item, True, was, self.almanac, SATURDAY)
+        self.assertEqual(item.skip_on, "2026-09-14")
+
+    def test_an_edit_saved_after_the_skipped_time_does_not_skip_again(self):
+        item = self.armed()
+        was = planner.skip_moment(item)
+        planner.carry_skip(item, True, was, self.almanac,
+                           dt.datetime(2026, 9, 13, 3, 5))
+        self.assertFalse(item.skip_once)
+        self.assertEqual(item.skip_on, "")
+
+    def test_unticking_clears_the_day_too(self):
+        item = self.armed()
+        planner.carry_skip(item, False, planner.skip_moment(item),
+                           self.almanac, SATURDAY)
+        self.assertFalse(item.skip_once)
+        self.assertEqual(item.skip_on, "")
+
+
+class SkipWhileWatching(unittest.TestCase):
+    """見張りが、飛ばす回をどう扱うか。時計は引数で渡す。"""
+
+    def setUp(self):
+        from koyomi.director import RingDirector
+        from koyomi.vault import Vault
+        self.vault = Vault()
+        self.item = shipping_day()
+        planner.arm_skip(self.item, self.vault.almanac, SATURDAY)
+        self.vault.add(self.item)
+        self.director = RingDirector(self.vault)
+        self.rang, self.released = [], []
+        self.director.due.connect(lambda item, _round: self.rang.append(item.uid))
+        self.director.skip_over.connect(self.released.extend)
+
+    def pass_through(self, start, end):
+        self.director._last_check = start
+        self.director._on_tick(end)
+
+    def test_passing_the_skipped_time_rings_nothing_and_lets_go(self):
+        self.pass_through(dt.datetime(2026, 9, 13, 2, 59, 59, 900000),
+                          dt.datetime(2026, 9, 13, 3, 0, 0, 150000))
+        self.assertEqual(self.rang, [])
+        self.assertFalse(self.item.skip_once)
+        self.assertEqual(self.released, [self.item],
+                         "下ろしたことを画面と保存へ知らせていない")
+
+    def test_a_restart_soon_after_does_not_call_the_skip_missed(self):
+        plain = shipping_day()
+        self.vault.add(plain)
+        self.vault.last_seen = "2026-09-13T02:50:00"
+        found = self.director.sweep_missed(dt.datetime(2026, 9, 13, 3, 20))
+        self.assertEqual([item.uid for item, _when in found], [plain.uid])
+
+    def test_when_the_app_was_off_at_that_time_thursday_still_rings(self):
+        # 日曜の朝 9 時に起動。飛ばす回は、見張りの見ていないうちに過ぎている
+        self.pass_through(dt.datetime(2026, 9, 13, 9, 0),
+                          dt.datetime(2026, 9, 13, 9, 0, 0, 250000))
+        self.assertFalse(self.item.skip_once, "過ぎた指定が残っている")
+        self.pass_through(dt.datetime(2026, 9, 17, 2, 59, 59, 900000),
+                          dt.datetime(2026, 9, 17, 3, 0, 0, 150000))
+        self.assertEqual(self.rang, [self.item.uid])
+
+    def test_stopping_a_ring_keeps_a_skip_meant_for_later(self):
+        self.director.settle_after_stop(self.item)
+        self.assertTrue(self.item.skip_once)
+        self.assertEqual(self.item.skip_on, "2026-09-13")
+
+    def test_a_flag_without_a_day_skips_the_first_one_it_meets(self):
+        loose = shipping_day(skip_once=True)
+        self.vault.add(loose)
+        self.pass_through(dt.datetime(2026, 9, 13, 2, 59, 59, 900000),
+                          dt.datetime(2026, 9, 13, 3, 0, 0, 150000))
+        self.assertNotIn(loose.uid, self.rang)
+        self.assertFalse(loose.skip_once)
+
+    def test_a_dateless_flag_found_at_startup_counts_from_the_last_ring(self):
+        # 60 分より長く止まっていても、見張りの起点ではなく最後に鳴った回から数える
+        loose = shipping_day(skip_once=True, last_fired_at="2026-09-10T03:00:38")
+        self.vault.add(loose)
+        self.vault.last_seen = "2026-09-12T23:30:00"
+        self.director.sweep_missed(dt.datetime(2026, 9, 13, 9, 0))
+        self.assertEqual(loose.skip_on, "2026-09-13")
 
 
 class MissedAlarms(unittest.TestCase):

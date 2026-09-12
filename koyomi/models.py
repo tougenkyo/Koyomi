@@ -295,6 +295,7 @@ class WakeItem:
     dodge_holidays: bool = False
     dodge_lists: list = field(default_factory=list)   # DayList のキー
     skip_once: bool = False
+    skip_on: str = ""                  # 飛ばす回の日付（YYYY-MM-DD）
 
     # 音・振る舞い
     sound: SoundPlan = field(default_factory=SoundPlan)
@@ -334,6 +335,7 @@ class WakeItem:
         clone = WakeItem.from_dict(self.to_dict())
         clone.uid = uuid.uuid4().hex[:12]
         clone.skip_once = False
+        clone.skip_on = ""
         clone.last_fired_at = ""
         clone.toggle_locked = False
         if clone.title:
@@ -354,6 +356,7 @@ class WakeItem:
             "dodge_holidays": self.dodge_holidays,
             "dodge_lists": list(self.dodge_lists),
             "skip_once": self.skip_once,
+            "skip_on": self.skip_on,
             "sound": self.sound.to_dict(),
             "snooze": self.snooze.to_dict(),
             "stop_guard": self.stop_guard.to_dict(),
@@ -373,7 +376,7 @@ class WakeItem:
     def from_dict(cls, d: dict) -> "WakeItem":
         d = dict(d or {})
         obj = cls()
-        for key in ("uid", "title", "group", "last_fired_at"):
+        for key in ("uid", "title", "group", "last_fired_at", "skip_on"):
             if d.get(key) is not None:
                 setattr(obj, key, str(d[key]))
         for key in ("hour", "minute", "second", "auto_stop_minutes"):
@@ -479,6 +482,7 @@ class Prefs:
         item = WakeItem.from_dict(self.default_item)
         item.uid = uuid.uuid4().hex[:12]
         item.skip_once = False
+        item.skip_on = ""
         item.last_fired_at = ""
         item.toggle_locked = False
         item.active = True

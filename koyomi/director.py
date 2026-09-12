@@ -35,6 +35,7 @@ class RingDirector(QObject):
     due = Signal(object, int)        # (WakeItem, スヌーズ回数 0=初回)
     tick = Signal()                  # 毎秒。一覧の相対時刻表示の更新用
     missed = Signal(list)            # 起動時に見つかった取りこぼし
+    skip_over = Signal(list)         # 飛ばす回を過ぎて、指定を下ろしたアラーム
 
     def __init__(self, vault, parent=None):
         super().__init__(parent)
@@ -58,12 +59,15 @@ class RingDirector(QObject):
         self._clock.stop()
 
     # ---- 取りこぼしの補完 -------------------------------------------------
-    def sweep_missed(self) -> list:
-        """前回終了時から今までに鳴るはずだったアラームを拾う。"""
+    def sweep_missed(self, now: dt.datetime | None = None) -> list:
+        """前回終了時から今までに鳴るはずだったアラームを拾う。
+
+        飛ばすことになっていた回は、鳴らせなかったものに数えない。
+        """
         window = max(0, self.vault.prefs.catch_up_window_minutes)
         if not window:
             return []
-        now = dt.datetime.now()
+        now = now or dt.datetime.now()
         floor = now - dt.timedelta(minutes=window)
         start = floor
         if self.vault.last_seen:
@@ -72,11 +76,16 @@ class RingDirector(QObject):
                 start = max(floor, seen)
             except ValueError:
                 pass
+        # 日付を持たない指定は、読み込んだときと同じ数え方で日付を補う
+        self.vault.pin_skips(now)
         found = []
         for item in self.vault.items:
             if not item.active:
                 continue
-            hits = planner.times_in_range(item, self.vault.almanac, start, now)
+            skip = planner.skip_day(item)
+            hits = [hit for hit in
+                    planner.times_in_range(item, self.vault.almanac, start, now)
+                    if hit.date() != skip]
             if hits:
                 found.append((item, hits[-1]))
         if found:
@@ -149,18 +158,14 @@ class RingDirector(QObject):
         self.cancel_snooze(item.uid)
         self.release(item.uid)
         item.last_fired_at = dt.datetime.now().isoformat(timespec="seconds")
-        if item.skip_once:
-            item.skip_once = False
+        # 「次は飛ばす」はここでは下ろさない。飛ばす回は日付で決まっていて、
+        # いま止めた回とは別の回を指している。
         if item.repeat.cycle in (Cycle.SINGLE, Cycle.ON_DATE):
             item.active = False
 
-    def consume_skip(self, item: WakeItem) -> None:
-        """スキップ指定の日を通過したのでフラグを下ろす。"""
-        item.skip_once = False
-
     # ---- 毎秒の判定 -------------------------------------------------------
-    def _on_tick(self) -> None:
-        now = dt.datetime.now()
+    def _on_tick(self, now: dt.datetime | None = None) -> None:
+        now = now or dt.datetime.now()
         # 端末のスリープ復帰などで時計が飛んだ場合も、間の分を取りこぼさない
         gap_start = min(self._last_check, now)
         self._last_check = now
@@ -177,20 +182,32 @@ class RingDirector(QObject):
                 self._suspended.add(uid)
                 self.due.emit(item, state.rounds)
 
+        released = []
         for item in self.vault.items:
+            skip = None
+            if item.skip_once:
+                planner.pin_skip(item, self.vault.almanac, gap_start)
+                skip = planner.skip_day(item)
+                # 見張りが見ていないうちに過ぎた回でも、過ぎたことに変わりはない
+                if planner.skip_is_over(item, now):
+                    planner.disarm_skip(item)
+                    released.append(item)
             if not item.active or item.uid in self._suspended:
                 continue
             if item.uid in self._snoozes:
                 continue
             hits = planner.times_in_range(item, self.vault.almanac, gap_start, now)
-            if not hits:
-                continue
-            if item.skip_once:
-                self.consume_skip(item)
+            if skip is not None and any(hit.date() == skip for hit in hits):
                 item.last_fired_at = now.isoformat(timespec="seconds")
+                hits = [hit for hit in hits if hit.date() != skip]
+            if not hits:
                 continue
             self._suspended.add(item.uid)
             self.due.emit(item, 0)
+
+        # 画面の描き直しと保存は、見回りを終えてから頼む
+        if released:
+            self.skip_over.emit(released)
 
         # 一覧の相対表示は 1 秒に 1 回で足りる
         stamp = now.replace(microsecond=0)

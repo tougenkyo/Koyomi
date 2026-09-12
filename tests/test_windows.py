@@ -386,6 +386,97 @@ class TryTheCompanionNow(unittest.TestCase):
         self.assertIn("まだ記録はありません", shown.call_args[0][2])
 
 
+class SkipOnTheCard(unittest.TestCase):
+    """一覧の札が、飛ばす回を過ぎたら外れて、そのことが保存されること。"""
+
+    def setUp(self):
+        from koyomi import planner
+        from koyomi.ui.main_window import MainWindow
+        i18n.set_language("ja")
+        self.planner = planner
+        self.vault = Vault()
+        self.item = WakeItem(hour=3, minute=0, title="発送依頼日",
+                             repeat=RepeatRule(cycle=Cycle.WEEKDAYS,
+                                               weekdays=[3, 6]))
+        planner.arm_skip(self.item, self.vault.almanac,
+                         dt.datetime(2026, 9, 12, 10, 0))
+        self.vault.add(self.item)
+        self.saves = mock.patch.object(Vault, "save").start()
+        self.addCleanup(mock.patch.stopall)
+        self.win = MainWindow(self.vault, quiet_engine())
+        self.addCleanup(self._shut)
+
+    def _shut(self):
+        self.win._quitting = True
+        self.win.close()
+
+    def pills(self) -> list:
+        row = self.win.rows[0]
+        return [row.pills.itemAt(i).widget().text()
+                for i in range(row.pills.count())
+                if row.pills.itemAt(i).widget()]
+
+    def test_the_card_names_the_day(self):
+        self.assertIn("9/13(日) は飛ばす", self.pills())
+
+    def test_the_label_goes_and_is_saved_once_the_time_passes(self):
+        self.saves.reset_mock()
+        self.win.director._last_check = dt.datetime(2026, 9, 13, 2, 59, 59, 900000)
+        self.win.director._on_tick(dt.datetime(2026, 9, 13, 3, 0, 0, 150000))
+        self.assertFalse(self.item.skip_once)
+        self.assertNotIn("9/13(日) は飛ばす", self.pills(), "札が残っている")
+        self.assertTrue(self.saves.called, "下ろしたことが保存されていない")
+        self.assertIn("「発送依頼日」は飛ばす回が過ぎました", self.win.status.text())
+
+    def test_the_menu_toggle_sets_and_clears_the_day(self):
+        self.win.toggle_skip(self.item)
+        self.assertFalse(self.item.skip_once)
+        self.assertEqual(self.item.skip_on, "")
+        self.win.toggle_skip(self.item)
+        self.assertTrue(self.item.skip_once)
+        self.assertNotEqual(self.item.skip_on, "")
+
+    def test_the_editor_keeps_the_day_through_a_save(self):
+        from koyomi.ui.editor import AlarmEditor
+        self.planner.arm_skip(self.item, self.vault.almanac)   # いまから数えた次の回
+        dialog = AlarmEditor(self.item, self.vault, quiet_engine())
+        dialog._commit()
+        self.assertEqual(dialog.result_item().skip_on, self.item.skip_on)
+
+    def test_unticking_in_the_editor_clears_the_day(self):
+        from koyomi.ui.editor import AlarmEditor
+        self.planner.arm_skip(self.item, self.vault.almanac)
+        dialog = AlarmEditor(self.item, self.vault, quiet_engine())
+        dialog.skip_box.setChecked(False)
+        dialog._commit()
+        saved = dialog.result_item()
+        self.assertFalse(saved.skip_once)
+        self.assertEqual(saved.skip_on, "")
+
+    def test_what_passed_while_closed_is_counted_before_watching_starts(self):
+        # 見張りが先に回ると、過ぎた「次は飛ばす」を下ろしてから取りこぼしを
+        # 数えるので、飛ばした回が「鳴らせなかったアラーム」に出てしまう
+        from koyomi.director import RingDirector
+        from koyomi.ui.main_window import MainWindow
+        order = []
+        real_sweep, real_start = RingDirector.sweep_missed, RingDirector.start
+
+        def sweep(director, *args, **kwargs):
+            order.append("sweep")
+            return real_sweep(director, *args, **kwargs)
+
+        def start(director):
+            order.append("start")
+            return real_start(director)
+
+        with mock.patch.object(RingDirector, "sweep_missed", sweep):
+            with mock.patch.object(RingDirector, "start", start):
+                win = MainWindow(self.vault, quiet_engine())
+        win._quitting = True
+        win.close()
+        self.assertEqual(order[:2], ["sweep", "start"])
+
+
 class SilenceHidesWhatDoesNotApply(unittest.TestCase):
     """画面を出さない設定にすると、関わりのない欄が引っ込む。"""
 

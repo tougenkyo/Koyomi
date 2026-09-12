@@ -112,12 +112,13 @@ def upcoming_times(item: WakeItem, almanac=None, after: dt.datetime | None = Non
 
 
 def next_time(item: WakeItem, almanac=None, after: dt.datetime | None = None):
-    """次に鳴る日時。``skip_once`` が立っていれば 1 回分読み飛ばす。"""
-    want = 2 if item.skip_once else 1
-    hits = upcoming_times(item, almanac, after, count=want)
-    if len(hits) < want:
-        return None
-    return hits[-1]
+    """次に鳴る日時。飛ばすことになっている回は数えない。"""
+    skip = skip_day(item, almanac, after)
+    hits = upcoming_times(item, almanac, after, count=2 if skip else 1)
+    for hit in hits:
+        if hit.date() != skip:
+            return hit
+    return None
 
 
 def times_in_range(item: WakeItem, almanac, start: dt.datetime,
@@ -149,6 +150,120 @@ def next_time_for_display(item: WakeItem, almanac=None):
 def can_skip(item: WakeItem) -> bool:
     """「次の 1 回だけ飛ばす」を適用できるアラームか。"""
     return item.active and item.repeat.cycle not in (Cycle.SINGLE, Cycle.ON_DATE)
+
+
+# --------------------------------------------------------------------------
+# 「次の 1 回だけ飛ばす」
+# --------------------------------------------------------------------------
+# 飛ばす回は日付で覚えておく。1 日に 2 回鳴ることは無いので日付で足りる。
+# 「見張りが次に見かけた回」を飛ばす作りだと、その時刻にアプリが
+# 動いていなかったとき、続く回を代わりに飛ばしてしまう。
+
+def skip_day(item: WakeItem, almanac=None, after: dt.datetime | None = None):
+    """飛ばすことになっている回の日付。飛ばさないなら None。
+
+    日付を持たない指定（``skip_once`` だけを立てたもの）は、
+    ``after`` より後の最初の回を飛ばすものとして扱う。
+    """
+    if not item.skip_once:
+        return None
+    if item.skip_on:
+        try:
+            return dt.date.fromisoformat(item.skip_on)
+        except ValueError:
+            pass
+    hits = upcoming_times(item, almanac, after, count=1)
+    return hits[0].date() if hits else None
+
+
+def skip_moment(item: WakeItem):
+    """飛ばす回の日時。日付が決まっていなければ None。"""
+    if not item.skip_once or not item.skip_on:
+        return None
+    try:
+        day = dt.date.fromisoformat(item.skip_on)
+    except ValueError:
+        return None
+    return dt.datetime.combine(day, item.time_of_day())
+
+
+def arm_skip(item: WakeItem, almanac=None, after: dt.datetime | None = None) -> bool:
+    """次の 1 回を飛ばすことにする。この先に鳴る回が無ければ False。"""
+    hits = upcoming_times(item, almanac, after, count=1)
+    if not hits:
+        return False
+    item.skip_once = True
+    item.skip_on = hits[0].date().isoformat()
+    return True
+
+
+def disarm_skip(item: WakeItem) -> None:
+    item.skip_once = False
+    item.skip_on = ""
+
+
+def pin_skip(item: WakeItem, almanac=None, after: dt.datetime | None = None) -> None:
+    """日付を持たない飛ばし指定に、どの回のことかを書き添える。"""
+    if not item.skip_once or item.skip_on:
+        return
+    day = skip_day(item, almanac, after)
+    if day is None:
+        disarm_skip(item)
+    else:
+        item.skip_on = day.isoformat()
+
+
+def skip_is_over(item: WakeItem, now: dt.datetime) -> bool:
+    """飛ばす回の時刻を過ぎたか。過ぎたら、もう飛ばすものは無い。"""
+    if not item.skip_once or not item.skip_on:
+        return False
+    moment = skip_moment(item)
+    return moment is None or now >= moment      # 読めない日付も当ての無い指定
+
+
+def _rings_on(item: WakeItem, day: dt.date, almanac=None) -> bool:
+    if not day_matches(item.repeat, day, almanac):
+        return False
+    return almanac is None or not almanac.is_blocked(
+        day, item.dodge_holidays, item.dodge_lists)
+
+
+def carry_skip(item: WakeItem, wanted: bool, was_due_at, almanac=None,
+               now: dt.datetime | None = None) -> None:
+    """編集して保存するときの「次の 1 回だけ飛ばす」。
+
+    ``was_due_at`` は、編集画面を開いた時点で飛ばすことになっていた回の日時。
+
+      - 開いている間にその回を過ぎていれば、飛ばし終えたものとして下ろす
+      - 編集後もその日に鳴る予定が残っていれば、同じ回を飛ばす
+      - 時刻や曜日を変えてその回が無くなったら、新しい予定の次の回を飛ばす
+    """
+    now = now or dt.datetime.now()
+    if not wanted:
+        disarm_skip(item)
+        return
+    if was_due_at is not None:
+        if was_due_at <= now:
+            disarm_skip(item)
+            return
+        day = was_due_at.date()
+        if (dt.datetime.combine(day, item.time_of_day()) > now
+                and _rings_on(item, day, almanac)):
+            item.skip_once = True
+            item.skip_on = day.isoformat()
+            return
+    if not arm_skip(item, almanac, now):
+        disarm_skip(item)
+
+
+def skip_label(item: WakeItem) -> str:
+    """一覧の札に出す「9/13(日) は飛ばす」。"""
+    moment = skip_moment(item)
+    if moment is None:
+        return tr("次は飛ばす")
+    day = "%d/%d(%s)" % (moment.month, moment.day,
+                         tr(WEEKDAY_LABELS[moment.weekday()]))
+    return tr("%s は飛ばす") % day
 
 
 # --------------------------------------------------------------------------

@@ -121,6 +121,13 @@ WORDS = {
     "次の1回だけ飛ばす": "Skip the next one",
     "次の1回を飛ばすのをやめる": "Stop skipping the next one",
     "次は飛ばす": "skipping next",
+    "%s は飛ばす": "skipping %s",
+    "「%s」は飛ばす回が過ぎました。次からはいつもどおり鳴ります。":
+        '"%s": the skipped time has passed. It rings as usual from now on.',
+    "%d件のアラームで、飛ばす回が過ぎました。次からはいつもどおり鳴ります。":
+        "The skipped time has passed for %d alarms. They ring as usual from now on.",
+    "この先に鳴る予定が無いので、飛ばせません。":
+        "Nothing is scheduled ahead, so there is nothing to skip.",
     "繰り返しのないアラームは飛ばせません。":
         "An alarm that does not repeat cannot be skipped.",
 

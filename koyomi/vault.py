@@ -12,7 +12,7 @@ import os
 import shutil
 import tempfile
 
-from . import APP_NAME, APP_VERSION
+from . import APP_NAME, APP_VERSION, planner
 from .almanac import Almanac
 from .models import DEFAULT_GROUPS, Prefs, WakeItem
 from .tasks import TodoItem
@@ -53,6 +53,14 @@ def _adopt_legacy(root: str, current: str) -> None:
         except OSError:
             continue
         return
+
+
+def _moment(text: str):
+    """保存してある日時の文字列。読めなければ None。"""
+    try:
+        return dt.datetime.fromisoformat(text) if text else None
+    except ValueError:
+        return None
 
 
 def data_dir() -> str:
@@ -139,6 +147,22 @@ class Vault:
         self.last_seen = str(raw.get("last_seen") or "")
         if not self.prefs.keep_group_filter:
             self.prefs.group_filter = []
+        self.pin_skips()
+
+    def pin_skips(self, now: dt.datetime | None = None) -> None:
+        """日付を持たない「次は飛ばす」に、どの回のことかを書き添える。
+
+        0.9.010 までは飛ばす回を覚えていなかった。最後に鳴ったあとの
+        最初の回を飛ばすつもりだったとみなす。鳴った記録が無ければ、
+        前回アプリが動いていた時刻から数える。先の回を指して黙って
+        鳴らさないより、手前を指して 1 回余計に鳴るほうが害が少ない。
+        """
+        now = now or dt.datetime.now()
+        for item in self.items:
+            if not item.skip_once or item.skip_on:
+                continue
+            anchor = _moment(item.last_fired_at) or _moment(self.last_seen) or now
+            planner.pin_skip(item, self.almanac, min(anchor, now))
 
     def snapshot(self) -> dict:
         return {

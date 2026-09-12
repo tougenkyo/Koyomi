@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,
                                QScrollArea, QSlider, QSpinBox, QStackedWidget,
                                QTabWidget, QVBoxLayout, QWidget)
 
+from .. import planner
 from ..actions import (LaunchPlan, check as check_launch, run_now,
                        split_arguments, work_log_path)
 from ..models import (WEEKDAY_LABELS, Cycle, Guard, GuardPlan, SnoozeOrigin,
@@ -467,6 +468,8 @@ class AlarmEditor(QDialog):
                  title: str = tr("アラームの設定")):
         super().__init__(parent)
         self.item = WakeItem.from_dict(item.to_dict())
+        # 開いた時点で飛ばすことになっていた回。保存のときに引き継ぐかを決める
+        self._skip_was = planner.skip_moment(self.item)
         self.vault = vault
         self.engine = engine
         self.setWindowTitle(title)
@@ -903,7 +906,9 @@ class AlarmEditor(QDialog):
         item.repeat = self.repeat_editor.value()
         item.dodge_holidays = self.holiday_box.isChecked()
         item.dodge_lists = [k for k, b in self.dodge_boxes.items() if b.isChecked()]
-        item.skip_once = self.skip_box.isChecked()
+        # 時刻と繰り返しを書き戻してから決める。飛ばす回はそれらで変わる
+        planner.carry_skip(item, self.skip_box.isChecked(), self._skip_was,
+                           self.vault.almanac)
 
         item.sound = self.sound_editor.value()
         for attr, (toggle, editor) in self.round_editors.items():

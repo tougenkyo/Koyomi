@@ -91,7 +91,7 @@ python tools/make_shortcut.py
 
 - 日本の祝日を除く（[jpholiday](https://pypi.org/project/jpholiday/) を利用）
 - 8 本まで持てる日付リストを除く（祝日の一括取り込み、曜日の一年分登録に対応）
-- 次の 1 回だけ飛ばす
+- 次の 1 回だけ飛ばす（一覧に「9/13(日) は飛ばす」と日付が出て、その回を過ぎると自動で外れます）
 
 ![日付リストの管理](docs/screenshots/datelists.png)
 

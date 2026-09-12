@@ -127,7 +127,7 @@ class AlarmRow(QWidget):
         if item.toggle_locked:
             self.pills.addWidget(Pill(tr("固定"), theme.TEXT_SUB))
         if item.skip_once:
-            self.pills.addWidget(Pill(tr("次は飛ばす"), theme.WARN))
+            self.pills.addWidget(Pill(planner.skip_label(item), theme.WARN))
         if item.silent_run:
             self.pills.addWidget(Pill(tr("画面なし"), theme.COOL))
         if self.window.director.is_snoozing(item.uid):
@@ -207,6 +207,7 @@ class MainWindow(QMainWindow):
         self.director = RingDirector(vault, self)
         self.director.due.connect(self._on_due)
         self.director.tick.connect(self._on_tick)
+        self.director.skip_over.connect(self._on_skip_over)
 
         self.setWindowTitle(APP_TITLE)
         self.setMinimumSize(760, 620)
@@ -215,10 +216,13 @@ class MainWindow(QMainWindow):
         self._build()
         self._build_tray()
         self.reload()
+        # 止まっていた間の分を先に数えてから、見張りを始める。先に見張りが回ると
+        # 過ぎた「次は飛ばす」を下ろしてしまい、飛ばした回を取りこぼしと数える
+        missed = self.director.sweep_missed()
         self.director.start()
         if self.vault.prefs.float_bar:
             QTimer.singleShot(200, self.show_float_bar)
-        QTimer.singleShot(400, self._report_missed)
+        QTimer.singleShot(400, lambda: self._report_missed(missed))
         QTimer.singleShot(600, self._review_pending_actions)
         QTimer.singleShot(900, self._check_autostart_health)
         if self.vault.prefs.check_updates:
@@ -534,6 +538,20 @@ class MainWindow(QMainWindow):
             row.refresh_countdown()
         self._maybe_auto_sleep()
 
+    def _on_skip_over(self, items: list) -> None:
+        """飛ばす回を過ぎた。札を外し、下ろしたことを保存する。
+
+        保存しないままだと、落ちたときに指定が戻り、続く回まで飛ばしてしまう。
+        """
+        self.after_change()
+        if len(items) == 1:
+            message = (tr("「%s」は飛ばす回が過ぎました。次からはいつもどおり鳴ります。")
+                       % items[0].display_title())
+        else:
+            message = (tr("%d件のアラームで、飛ばす回が過ぎました。"
+                          "次からはいつもどおり鳴ります。") % len(items))
+        self.flash_status(message)
+
     def flash_status(self, text: str) -> None:
         self.status.setText(text)
         QTimer.singleShot(6000, lambda: self.status.setText("")
@@ -574,7 +592,11 @@ class MainWindow(QMainWindow):
         if not planner.can_skip(item):
             self.flash_status(tr("繰り返しのないアラームは飛ばせません。"))
             return
-        item.skip_once = not item.skip_once
+        if item.skip_once:
+            planner.disarm_skip(item)
+        elif not planner.arm_skip(item, self.vault.almanac):
+            self.flash_status(tr("この先に鳴る予定が無いので、飛ばせません。"))
+            return
         self.after_change()
 
     def toggle_lock(self, item: WakeItem) -> None:
@@ -678,7 +700,7 @@ class MainWindow(QMainWindow):
             if item.repeat.cycle in (Cycle.SINGLE, Cycle.ON_DATE):
                 item.active = False
             else:
-                item.skip_once = True
+                planner.arm_skip(item, self.vault.almanac)
             touched += 1
         self.after_change()
         self.flash_status(tr("%d件を止めました。") % touched)
@@ -1011,8 +1033,7 @@ class MainWindow(QMainWindow):
                                       QSystemTrayIcon.Information, 6000)
         self.after_change()
 
-    def _report_missed(self) -> None:
-        found = self.director.sweep_missed()
+    def _report_missed(self, found: list) -> None:
         if not found:
             return
         lines = [tr("アプリが動いていない間に、次のアラームの時刻が過ぎていました。"), ""]
