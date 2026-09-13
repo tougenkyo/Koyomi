@@ -145,6 +145,144 @@ class Windows(unittest.TestCase):
         self.assertEqual(row.left, 0.0)
 
 
+BELL = "C:/sounds/bell.mp3"
+
+
+class Countdowns(unittest.TestCase):
+    """足したらすぐ計り始めること。終わったときの音を選べること。"""
+
+    def setUp(self):
+        from koyomi.ui.timers import TimerWindow
+        i18n.set_language("ja")
+        self.vault = Vault()
+        self.engine = quiet_engine()
+        self.window = TimerWindow(self.vault, self.engine)
+        self.addCleanup(self.window.close)
+
+    def pick_file(self, path=BELL):
+        from koyomi.models import ToneKind
+        editor = self.window.sound_editor
+        editor.kind_box.setCurrentIndex(editor.kind_box.findData(ToneKind.FILE))
+        editor.path_field.setText(path)
+
+    def test_a_quick_add_starts_at_once(self):
+        self.window._add_preset(0)
+        row = self.window.rows[-1]
+        self.assertTrue(row.running, "足しただけで止まっている")
+        self.assertTrue(self.vault.timers[-1]["deadline"])
+
+    def test_a_new_timer_starts_at_once(self):
+        self.window.min_box.setValue(2)
+        before = dt.datetime.now()
+        self.window._add_custom()
+        row = self.window.rows[-1]
+        self.assertTrue(row.running, "足しただけで止まっている")
+        self.assertAlmostEqual((row.deadline - before).total_seconds(), 120, delta=2)
+
+    def test_a_timer_to_a_date_ends_right_at_that_time(self):
+        from PySide6.QtCore import QDateTime
+        target = QDateTime.currentDateTime().addSecs(3600)
+        self.window._flip_mode()
+        self.window.target_field.setDateTime(target)
+        self.window._add_custom()
+        row = self.window.rows[-1]
+        self.assertTrue(row.running)
+        self.assertLess(abs((row.deadline - target.toPython()).total_seconds()), 1.0)
+
+    def test_the_chosen_file_goes_with_the_timer(self):
+        from koyomi.models import ToneKind
+        from koyomi.ui.timers import CountdownRow
+        self.pick_file()
+        self.window._add_preset(0)
+        saved = self.vault.timers[-1]
+        self.assertEqual(saved["sound"]["kind"], "file")
+        self.assertEqual(saved["sound"]["source"], BELL)
+        again = CountdownRow(saved["name"], saved["seconds"], saved["deadline"],
+                             saved["sound"])
+        self.assertEqual(again.sound.kind, ToneKind.FILE)
+        self.assertEqual(again.sound.source, BELL)
+        self.assertIn("bell.mp3", again.tone.text())
+
+    def test_each_timer_keeps_its_own_sound(self):
+        from koyomi.models import ToneKind
+        self.window._add_preset(0)                   # 既定の音のまま
+        self.pick_file()
+        self.window._add_preset(1)                   # ファイルに替えてから
+        first, second = self.window.rows[-2:]
+        self.assertEqual(first.sound.kind, ToneKind.BUILTIN)
+        self.assertEqual(second.sound.kind, ToneKind.FILE)
+
+    def test_the_choice_is_there_next_time(self):
+        from koyomi.models import ToneKind
+        from koyomi.ui.timers import TimerWindow
+        self.pick_file()
+        self.window.close()
+        again = Vault()
+        again.apply(self.vault.snapshot())            # 保存して読み戻したつもり
+        reopened = TimerWindow(again, self.engine)
+        self.addCleanup(reopened.close)
+        chosen = reopened.sound_editor.value()
+        self.assertEqual(chosen.kind, ToneKind.FILE)
+        self.assertEqual(chosen.source, BELL)
+
+    def test_timers_added_before_this_ring_the_old_tone(self):
+        from koyomi.models import ToneKind
+        from koyomi.ui.timers import CountdownRow
+        row = CountdownRow("卵", 300)
+        self.assertEqual(row.sound.kind, ToneKind.BUILTIN)
+        self.assertEqual(row.sound.source, "hibiki")
+
+    def test_the_sound_picker_stays_folded_until_asked(self):
+        self.assertTrue(self.window.sound_editor.isHidden(), "一覧の場所を食っている")
+        self.window.tone_toggle.setChecked(True)
+        self.assertFalse(self.window.sound_editor.isHidden())
+        self.window.tone_toggle.setChecked(False)
+        self.assertTrue(self.window.sound_editor.isHidden())
+
+    def test_opening_the_picker_makes_room_instead_of_squashing_it(self):
+        self.window.resize(560, 660)
+        with mock.patch.object(self.window, "screen", return_value=None):
+            self.window.tone_toggle.setChecked(True)
+        self.assertGreaterEqual(self.window.height(),
+                                self.window.minimumSizeHint().height())
+
+    def test_the_folded_line_names_the_sound(self):
+        self.assertIn("ひびき", self.window.tone_summary.text())
+        self.pick_file()
+        self.assertIn("bell.mp3", self.window.tone_summary.text())
+
+    def test_it_rings_its_own_sound_until_stopped(self):
+        from PySide6.QtWidgets import QDialog
+        from koyomi.models import ToneKind
+        self.pick_file()
+        self.window._add_preset(0)
+        with mock.patch.object(self.engine, "start", return_value="") as played:
+            with mock.patch.object(self.engine, "stop"):
+                with mock.patch.object(QDialog, "exec", return_value=0):
+                    self.window._on_finished(self.window.rows[-1])
+        plan = played.call_args[0][0]
+        self.assertEqual(plan.kind, ToneKind.FILE)
+        self.assertEqual(plan.source, BELL)
+        self.assertTrue(plan.loop)
+
+    def test_a_missing_file_is_mentioned_when_it_rings(self):
+        from PySide6.QtWidgets import QDialog, QLabel
+        self.pick_file()
+        self.window._add_preset(0)
+        seen = []
+
+        def look(dialog):
+            seen.extend(label.text() for label in dialog.findChildren(QLabel))
+            return 0
+
+        notice = "指定した音声ファイルが見つからないため、内蔵音で鳴らしています。"
+        with mock.patch.object(self.engine, "start", return_value=notice):
+            with mock.patch.object(self.engine, "stop"):
+                with mock.patch.object(QDialog, "exec", look):
+                    self.window._on_finished(self.window.rows[-1])
+        self.assertIn(notice, seen)
+
+
 class TimeField(unittest.TestCase):
     """カーソルの下の桁がホイールで動くこと。"""
 

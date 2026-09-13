@@ -110,6 +110,7 @@ class Vault:
         self.almanac = Almanac()
         self.timer_presets: list = [180, 300, 600]
         self.timers: list = []
+        self.timer_sound: dict = {}    # これから足すタイマーの音。空なら既定の音
         self.todos: list = []
         self.world_zones: list = ["Asia/Tokyo", "America/New_York", "Europe/London"]
         self.last_seen: str = ""   # 前回アプリが動いていた時刻（取りこぼし検出用）
@@ -140,6 +141,8 @@ class Vault:
         if isinstance(presets, list) and presets:
             self.timer_presets = [int(x) for x in presets[:3]]
         self.timers = list(raw.get("timers") or [])
+        sound = raw.get("timer_sound")
+        self.timer_sound = dict(sound) if isinstance(sound, dict) else {}
         self.todos = [TodoItem.from_dict(d) for d in raw.get("todos") or []]
         zones = raw.get("world_zones")
         if isinstance(zones, list):
@@ -175,6 +178,7 @@ class Vault:
             "date_lists": self.almanac.to_dict(),
             "timer_presets": self.timer_presets,
             "timers": self.timers,
+            "timer_sound": self.timer_sound,
             "todos": [t.to_dict() for t in self.todos],
             "world_zones": self.world_zones,
             "last_seen": self.last_seen,

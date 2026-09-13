@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 
 from PySide6.QtCore import QDateTime, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QDialog, QGroupBox, QHBoxLayout, QInputDialog,
@@ -16,11 +17,41 @@ from PySide6.QtWidgets import (QDialog, QGroupBox, QHBoxLayout, QInputDialog,
 
 from ..models import SoundPlan, ToneKind
 from ..planner import duration_text, span_text
+from ..tonesmith import TONE_CATALOG
 from . import theme
+from .editor import SoundEditor
 from .stopwatch import StopwatchWindow
 from ..i18n import tr
 
 MAX_TIMERS = 10
+
+
+def timer_sound(raw=None) -> SoundPlan:
+    """タイマーの音の指定を読む。
+
+    無いときや読めないときは、音を選べるようになる前から鳴らしていた
+    「ひびき」にする。以前に足したタイマーは、これまでどおりの音で鳴る。
+    """
+    if isinstance(raw, SoundPlan):
+        return SoundPlan.from_dict(raw.to_dict())
+    if isinstance(raw, dict) and raw:
+        try:
+            return SoundPlan.from_dict(raw)
+        except (TypeError, ValueError):
+            pass
+    return SoundPlan(kind=ToneKind.BUILTIN, source="hibiki", volume=70, loop=True)
+
+
+def sound_caption(plan: SoundPlan) -> str:
+    """行に添える、音の短い名前。"""
+    if plan.kind == ToneKind.SILENT:
+        return tr("音を鳴らさない")
+    if plan.kind == ToneKind.BUILTIN:
+        return tr(TONE_CATALOG.get(plan.source, TONE_CATALOG["kizashi"]))
+    name = os.path.basename(os.path.normpath(plan.source)) if plan.source else ""
+    if plan.kind == ToneKind.FOLDER_PICK:
+        return "%s（%s）" % (name, tr("フォルダからランダム"))
+    return name or tr("音声ファイル")
 
 
 class CountdownRow(QWidget):
@@ -30,10 +61,11 @@ class CountdownRow(QWidget):
     removed = Signal(object)
 
     def __init__(self, name: str, seconds: int, deadline: str = "",
-                 parent=None):
+                 sound=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.total = max(1, int(seconds))
+        self.sound = timer_sound(sound)
         self.deadline = None
         self.left = float(self.total)
         self._rang = False
@@ -62,9 +94,19 @@ class CountdownRow(QWidget):
 
         text = QVBoxLayout()
         text.setSpacing(0)
+        head = QHBoxLayout()
+        head.setSpacing(8)
         self.title = QLabel(name)
         self.title.setStyleSheet("font-size: 13px; color: %s;" % theme.TEXT_SUB)
-        text.addWidget(self.title)
+        head.addWidget(self.title)
+        # 終わったときに鳴る音。タイマーごとに違う音を持てる
+        self.tone = QLabel("♪ " + sound_caption(self.sound))
+        self.tone.setStyleSheet("font-size: 11px; color: %s;" % theme.TEXT_SUB)
+        if self.sound.kind in (ToneKind.FILE, ToneKind.FOLDER_PICK):
+            self.tone.setToolTip(self.sound.source)
+        head.addWidget(self.tone)
+        head.addStretch(1)
+        text.addLayout(head)
         self.readout = QLabel(duration_text(self.total))
         self.readout.setStyleSheet("font-size: 24px; font-weight: bold;")
         text.addWidget(self.readout)
@@ -153,6 +195,7 @@ class CountdownRow(QWidget):
             "seconds": self.total,
             "deadline": self.deadline.isoformat(timespec="seconds")
                         if self.deadline else "",
+            "sound": self.sound.to_dict(),
         }
 
 
@@ -166,7 +209,7 @@ class TimerWindow(QDialog):
         self.rows = []
         self.watches = []
         self.setWindowTitle(tr("タイマー"))
-        self.setMinimumSize(560, 600)
+        self.setMinimumSize(560, 660)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -184,7 +227,8 @@ class TimerWindow(QDialog):
             try:
                 self._spawn(str(entry.get("name", tr("タイマー"))),
                             int(entry["seconds"]),
-                            str(entry.get("deadline", "")))
+                            str(entry.get("deadline", "")),
+                            entry.get("sound"))
             except (KeyError, TypeError, ValueError):
                 continue
 
@@ -274,6 +318,32 @@ class TimerWindow(QDialog):
         bottom.addWidget(add)
         cl.addLayout(bottom)
         lay.addWidget(custom)
+
+        # 「すぐ足す」にも「追加」にも効くので、どちらの枠にも入れない。
+        # 開いたままだと一覧の場所を食うので、ふだんは音の名前 1 行に畳む
+        tone_box = QGroupBox(tr("これから足すタイマーの音"))
+        tone_lay = QVBoxLayout(tone_box)
+        tone_head = QHBoxLayout()
+        self.tone_summary = QLabel()
+        tone_head.addWidget(self.tone_summary, 1)
+        self.tone_toggle = QPushButton(tr("音を選ぶ"))
+        self.tone_toggle.setProperty("tone", "ghost")
+        self.tone_toggle.setCheckable(True)
+        self.tone_toggle.toggled.connect(self._show_sound_editor)
+        tone_head.addWidget(self.tone_toggle)
+        tone_lay.addLayout(tone_head)
+        self.sound_editor = SoundEditor(timer_sound(self.vault.timer_sound),
+                                        compact=True)
+        self.sound_editor.preview_requested.connect(self._preview_sound)
+        self.sound_editor.preview_stopped.connect(self.engine.stop)
+        self.sound_editor.setVisible(False)
+        for changed in (self.sound_editor.kind_box.currentIndexChanged,
+                        self.sound_editor.builtin_box.currentIndexChanged,
+                        self.sound_editor.path_field.textChanged):
+            changed.connect(self._refresh_tone_summary)
+        tone_lay.addWidget(self.sound_editor)
+        lay.addWidget(tone_box)
+        self._refresh_tone_summary()
 
         for widget in (self.day_box, self.hour_box, self.min_box, self.sec_box):
             widget.valueChanged.connect(self._preview_span)
@@ -372,16 +442,21 @@ class TimerWindow(QDialog):
     def _refresh_count(self) -> None:
         self.count_note.setText(tr("登録中 %d／%d 本") % (len(self.rows), MAX_TIMERS))
 
-    def _spawn(self, name: str, seconds: int, deadline: str = "") -> None:
+    def _spawn(self, name: str, seconds: int, deadline: str = "",
+               sound=None, start: bool = False):
+        """行を 1 本足す。``start`` なら、足したその場で計り始める。"""
         if len(self.rows) >= MAX_TIMERS:
-            return
-        row = CountdownRow(name, seconds, deadline)
+            return None
+        row = CountdownRow(name, seconds, deadline, sound)
         row.finished.connect(self._on_finished)
         row.removed.connect(self._drop)
         self.stack_layout.insertWidget(self.stack_layout.count() - 1, row)
         self.rows.append(row)
+        if start and not row.running:
+            row.toggle()
         self._refresh_count()
         self._persist()
+        return row
 
     def _drop(self, row: CountdownRow) -> None:
         if row in self.rows:
@@ -393,17 +468,49 @@ class TimerWindow(QDialog):
 
     def _persist(self) -> None:
         self.vault.timers = [r.snapshot() for r in self.rows]
+        # 最後に選んでいた音は、次に窓を開いたときの初期値にする
+        self.vault.timer_sound = self.sound_editor.value().to_dict()
+
+    def _preview_sound(self, plan: SoundPlan) -> None:
+        trial = SoundPlan.from_dict(plan.to_dict())
+        trial.delay_start = False
+        trial.loop = False
+        self.engine.start(trial)
+
+    def _show_sound_editor(self, shown: bool) -> None:
+        self.sound_editor.setVisible(shown)
+        self.tone_toggle.setText(tr("閉じる") if shown else tr("音を選ぶ"))
+        if not shown:
+            return
+        # 開いた分だけ窓を伸ばす。伸ばさないと、欄が押し潰されて読めなくなる。
+        # 画面より高くはしない
+        needed = self.minimumSizeHint().height()
+        screen = self.screen()
+        if screen is not None:
+            needed = min(needed, screen.availableGeometry().height() - 40)
+        if self.height() < needed:
+            self.resize(self.width(), needed)
+
+    def _refresh_tone_summary(self, *_args) -> None:
+        self.tone_summary.setText("♪ " + sound_caption(self.sound_editor.value()))
 
     def _add_preset(self, slot: int) -> None:
         seconds = self.vault.timer_presets[slot]
-        self._spawn(duration_text(seconds), seconds)
+        self._spawn(duration_text(seconds), seconds,
+                    sound=self.sound_editor.value(), start=True)
 
     def _add_custom(self) -> None:
         seconds = self._requested_seconds()
         if seconds <= 0:
             return
         name = self.name_field.text().strip() or span_text(seconds)
-        self._spawn(name, seconds)
+        sound = self.sound_editor.value()
+        if self.mode_stack.currentIndex() == 1:
+            # 日時で指定したものは、足すまでに経った分も含めて、その時刻ちょうどに終える
+            target = self.target_field.dateTime().toPython()
+            self._spawn(name, seconds, target.isoformat(timespec="seconds"), sound)
+        else:
+            self._spawn(name, seconds, sound=sound, start=True)
         self.name_field.clear()
 
     def _edit_presets(self) -> None:
@@ -417,8 +524,10 @@ class TimerWindow(QDialog):
             self.preset_buttons[slot].setText(duration_text(value))
 
     def _on_finished(self, row: CountdownRow) -> None:
-        self.engine.start(SoundPlan(kind=ToneKind.BUILTIN, source="hibiki",
-                                    volume=70, loop=True))
+        plan = SoundPlan.from_dict(row.sound.to_dict())
+        plan.delay_start = False
+        plan.loop = True                 # 止めるまで鳴らし続ける
+        notice = self.engine.start(plan)
         box = QDialog(self)
         box.setWindowTitle(tr("タイマー"))
         box.setMinimumWidth(340)
@@ -428,6 +537,11 @@ class TimerWindow(QDialog):
         label.setStyleSheet("font-size: 16px;")
         label.setWordWrap(True)
         lay.addWidget(label)
+        if notice:                       # ファイルが見つからず内蔵の音にした、など
+            hint = QLabel(notice)
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: %s;" % theme.WARN)
+            lay.addWidget(hint)
         ok = QPushButton(tr("止める"))
         ok.setProperty("tone", "accent")
         ok.clicked.connect(box.accept)

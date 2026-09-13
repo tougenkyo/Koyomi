@@ -554,6 +554,8 @@ WORDS = {
     "「%s」の時間になりました。": "\"%s\" is up.",
     "タイマー %d本 ／ 最短 %s": "%d timers / soonest %s",
     "タイマーを閉じる": "Closing timers",
+    "これから足すタイマーの音": "Sound for the timers you add",
+    "音を選ぶ": "Choose a sound",
 
     # ---- ストップウォッチ --------------------------------------------------
     "ストップウォッチ": "Stopwatch",
