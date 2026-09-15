@@ -119,6 +119,8 @@ class ListOrder(str, Enum):
 
 
 WEEKDAY_LABELS = ("月", "火", "水", "木", "金", "土", "日")
+# 画面に並べる順。日曜はじめ。番号は date.weekday() と同じく月曜を 0 とする
+WEEKDAY_ORDER = (6, 0, 1, 2, 3, 4, 5)
 
 
 def as_enum(enum_cls, value, fallback=None):

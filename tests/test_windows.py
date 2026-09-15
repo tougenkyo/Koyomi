@@ -320,6 +320,86 @@ class TimeField(unittest.TestCase):
         field.close()
 
 
+class SundayFirst(unittest.TestCase):
+    """曜日はどこでも日曜はじめに並ぶこと。保存する番号は変えないこと。"""
+
+    def setUp(self):
+        i18n.set_language("ja")
+        self.vault = Vault()
+
+    def test_the_weekday_boxes_start_on_sunday(self):
+        from koyomi.ui.editor import RepeatEditor
+        editor = RepeatEditor(WakeItem(), self.vault.almanac)
+        row = editor.weekday_boxes[0].parentWidget().layout().itemAt(0).layout()
+        texts = [row.itemAt(i).widget().text() for i in range(row.count())
+                 if row.itemAt(i).widget()]
+        self.assertEqual(texts, ["日", "月", "火", "水", "木", "金", "土"])
+
+    def test_the_saved_weekday_numbers_do_not_move(self):
+        from koyomi.ui.editor import RepeatEditor
+        item = WakeItem(repeat=RepeatRule(cycle=Cycle.WEEKDAYS, weekdays=[3, 6]))
+        editor = RepeatEditor(item, self.vault.almanac)
+        self.assertEqual(editor.weekday_boxes[6].text(), "日")
+        self.assertTrue(editor.weekday_boxes[6].isChecked())
+        self.assertTrue(editor.weekday_boxes[3].isChecked())
+        self.assertEqual(editor.value().weekdays, [3, 6])
+
+    def test_the_nth_weekday_list_starts_on_sunday_and_keeps_the_choice(self):
+        from koyomi.ui.editor import RepeatEditor
+        item = WakeItem(repeat=RepeatRule(cycle=Cycle.NTH_WEEKDAY,
+                                          week_index=2, weekday=2))
+        editor = RepeatEditor(item, self.vault.almanac)
+        self.assertEqual(editor.nth_weekday.itemText(0), "日曜日")
+        self.assertEqual(editor.nth_weekday.currentText(), "水曜日")
+        self.assertEqual(editor.value().weekday, 2)
+
+    def test_the_date_list_weekdays_start_on_sunday(self):
+        from koyomi.ui.datelists import DateListDialog
+        dialog = DateListDialog(self.vault.almanac)
+        self.addCleanup(dialog.close)
+        self.assertEqual(dialog.weekday_box.itemText(0), "日曜日")
+        self.assertEqual(dialog.weekday_box.itemData(0), 6)
+
+    def test_calendars_start_on_sunday_whatever_the_os_says(self):
+        from PySide6.QtCore import QLocale, Qt
+        from koyomi.ui.datelists import DateListDialog
+        from koyomi.ui.editor import RepeatEditor
+        from koyomi.ui.timers import TimerWindow
+        from koyomi.ui.todo import TodoEditor
+        QLocale.setDefault(QLocale(QLocale.German, QLocale.Germany))
+        self.addCleanup(QLocale.setDefault, QLocale.system())
+        self.assertEqual(QLocale().firstDayOfWeek(), Qt.Monday, "月曜はじめの地域になっていない")
+        editor = RepeatEditor(WakeItem(), self.vault.almanac)
+        dates = DateListDialog(self.vault.almanac)
+        timers = TimerWindow(self.vault, quiet_engine())
+        todo = TodoEditor(TodoItem())
+        for window in (dates, timers, todo):
+            self.addCleanup(window.close)
+        fields = [editor.on_date, editor.step_anchor, editor.annual_date,
+                  editor.cycle_anchor, timers.target_field, todo.due_field]
+        calendars = [self.opened(field) for field in fields] + [dates.calendar]
+        self.assertEqual({c.firstDayOfWeek() for c in calendars}, {Qt.Sunday})
+
+    @staticmethod
+    def opened(field):
+        """利用者が日付欄を押したときと同じ順で、カレンダーを取り出す。"""
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
+        press = QMouseEvent(QEvent.MouseButtonPress, QPointF(4, 4), QPointF(4, 4),
+                            Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+        _app.sendEvent(field, press)
+        return field.calendarWidget()
+
+    def test_date_fields_do_not_build_their_calendars_up_front(self):
+        # 先に作ると日付欄ごとにカレンダーを抱え、編集画面もテストも重くなる
+        from PySide6.QtWidgets import QCalendarWidget
+        from koyomi.ui.editor import RepeatEditor
+        editor = RepeatEditor(WakeItem(), self.vault.almanac)
+        for field in (editor.on_date, editor.step_anchor,
+                      editor.annual_date, editor.cycle_anchor):
+            self.assertIsNone(field.findChild(QCalendarWidget))
+
+
 class RepeatPicker(unittest.TestCase):
     """繰り返しの選択肢と、その入力欄の対応。"""
 

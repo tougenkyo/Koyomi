@@ -9,7 +9,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 
-from .models import WEEKDAY_LABELS, Cycle, RepeatRule, WakeItem
+from .models import WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle, RepeatRule, WakeItem
 from .i18n import tr
 
 SEARCH_HORIZON_DAYS = 800
@@ -270,16 +270,17 @@ def skip_label(item: WakeItem) -> str:
 # 表示用の文字列
 # --------------------------------------------------------------------------
 def weekday_digest(days) -> str:
-    picked = sorted(set(days))
+    picked = set(days)
     if not picked:
         return tr("曜日未選択")
-    if picked == [0, 1, 2, 3, 4, 5, 6]:
+    if picked == set(range(7)):
         return tr("毎日")
-    if picked == [0, 1, 2, 3, 4]:
+    if picked == set(range(5)):
         return tr("平日")
-    if picked == [5, 6]:
+    if picked == {5, 6}:
         return tr("週末")
-    return tr("・").join(tr(WEEKDAY_LABELS[d]) for d in picked)
+    # 日曜はじめに並べる（日・月・火…）
+    return tr("・").join(tr(WEEKDAY_LABELS[d]) for d in WEEKDAY_ORDER if d in picked)
 
 
 def repeat_digest(item: WakeItem, almanac=None) -> str:

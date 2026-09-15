@@ -15,12 +15,13 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,
 from .. import planner
 from ..actions import (LaunchPlan, check as check_launch, run_now,
                        split_arguments, work_log_path)
-from ..models import (WEEKDAY_LABELS, Cycle, Guard, GuardPlan, SnoozeOrigin,
-                      SoundPlan, ToneKind, Toughness, WakeItem, as_enum)
+from ..models import (WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle, Guard, GuardPlan,
+                      SnoozeOrigin, SoundPlan, ToneKind, Toughness, WakeItem,
+                      as_enum)
 from ..player import AUDIO_SUFFIXES
 from ..tonesmith import TONE_CATALOG
 from . import guards, theme
-from .widgets import TimeSpinner
+from .widgets import TimeSpinner, sunday_first
 from ..i18n import tr
 
 
@@ -290,6 +291,7 @@ class RepeatEditor(QWidget):
         pl = QFormLayout(page)
         self.on_date = QDateEdit(QDate.currentDate().addDays(1))
         self.on_date.setCalendarPopup(True)
+        sunday_first(self.on_date)
         self.on_date.setDisplayFormat("yyyy/MM/dd")
         if rule.cycle == Cycle.ON_DATE and rule.anchor:
             self.on_date.setDate(QDate.fromString(rule.anchor, "yyyy-MM-dd"))
@@ -306,12 +308,13 @@ class RepeatEditor(QWidget):
         page = QWidget()
         pl = QVBoxLayout(page)
         row = QHBoxLayout()
-        self.weekday_boxes = []
-        for idx, label in enumerate(WEEKDAY_LABELS):
-            box = QCheckBox(tr(label))
+        # 並びは日曜はじめ。weekday_boxes は曜日の番号（月曜 = 0）で引けるようにしておく
+        self.weekday_boxes = [None] * 7
+        for idx in WEEKDAY_ORDER:
+            box = QCheckBox(tr(WEEKDAY_LABELS[idx]))
             box.setChecked(idx in rule.weekdays)
             row.addWidget(box)
-            self.weekday_boxes.append(box)
+            self.weekday_boxes[idx] = box
         row.addStretch(1)
         pl.addLayout(row)
         quick = QHBoxLayout()
@@ -346,6 +349,7 @@ class RepeatEditor(QWidget):
         pl.addRow(tr("間隔"), self.step_box)
         self.step_anchor = QDateEdit(QDate.currentDate())
         self.step_anchor.setCalendarPopup(True)
+        sunday_first(self.step_anchor)
         self.step_anchor.setDisplayFormat("yyyy/MM/dd")
         if rule.cycle == Cycle.EVERY_N_DAYS and rule.anchor:
             self.step_anchor.setDate(QDate.fromString(rule.anchor, "yyyy-MM-dd"))
@@ -375,9 +379,11 @@ class RepeatEditor(QWidget):
         self.week_box.setCurrentIndex(hit if hit >= 0 else 0)
         pl.addRow(tr("週"), self.week_box)
         self.nth_weekday = QComboBox()
-        for idx, label in enumerate(WEEKDAY_LABELS):
-            self.nth_weekday.addItem(tr("%s曜日") % tr(label), idx)
-        self.nth_weekday.setCurrentIndex(rule.weekday)
+        for idx in WEEKDAY_ORDER:
+            self.nth_weekday.addItem(tr("%s曜日") % tr(WEEKDAY_LABELS[idx]), idx)
+        # 並びと番号が一致しないので、番号で探して選ぶ
+        hit = self.nth_weekday.findData(rule.weekday)
+        self.nth_weekday.setCurrentIndex(hit if hit >= 0 else 0)
         pl.addRow(tr("曜日"), self.nth_weekday)
         self.stack.addWidget(page)
 
@@ -387,6 +393,7 @@ class RepeatEditor(QWidget):
         self.annual_date = QDateEdit(QDate(QDate.currentDate().year(),
                                            rule.month or 1, rule.day or 1))
         self.annual_date.setCalendarPopup(True)
+        sunday_first(self.annual_date)
         self.annual_date.setDisplayFormat("MM/dd")
         pl.addRow(tr("毎年"), self.annual_date)
         self.stack.addWidget(page)
@@ -406,6 +413,7 @@ class RepeatEditor(QWidget):
         pl.addRow(self.rest_box)
         self.cycle_anchor = QDateEdit(QDate.currentDate())
         self.cycle_anchor.setCalendarPopup(True)
+        sunday_first(self.cycle_anchor)
         self.cycle_anchor.setDisplayFormat("yyyy/MM/dd")
         if rule.cycle == Cycle.RUN_REST and rule.anchor:
             self.cycle_anchor.setDate(QDate.fromString(rule.anchor, "yyyy-MM-dd"))

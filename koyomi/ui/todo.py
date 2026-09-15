@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,
 
 from ..tasks import TodoItem, Weight, sort_key
 from . import theme
-from .widgets import Pill
+from .widgets import Pill, sunday_first
 from ..i18n import tr
 
 WEIGHT_TINTS = {Weight.HIGH: "WARN", Weight.MID: "ACCENT", Weight.LOW: "TEXT_SUB"}
@@ -130,6 +130,7 @@ class TodoEditor(QDialog):
         due_row.addWidget(self.has_due)
         self.due_field = QDateEdit(QDate.currentDate())
         self.due_field.setCalendarPopup(True)
+        sunday_first(self.due_field)
         self.due_field.setDisplayFormat("yyyy/MM/dd")
         day = self.item.due_date()
         if day:

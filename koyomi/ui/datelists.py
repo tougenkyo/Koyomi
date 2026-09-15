@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (QCalendarWidget, QComboBox, QDialog, QGroupBox,
                                QHBoxLayout, QInputDialog, QLabel, QListWidget,
                                QMessageBox, QPushButton, QSpinBox, QVBoxLayout)
 
+from ..models import WEEKDAY_LABELS, WEEKDAY_ORDER
 from . import theme
+from .widgets import sunday_first
 from ..i18n import tr
 
 
@@ -53,6 +55,7 @@ class DateListDialog(QDialog):
         left = QVBoxLayout()
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
+        sunday_first(self.calendar)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.calendar.clicked.connect(self._toggle_day)
         self.calendar.currentPageChanged.connect(lambda *_: self._paint())
@@ -94,8 +97,8 @@ class DateListDialog(QDialog):
 
         weekday_row = QHBoxLayout()
         self.weekday_box = QComboBox()
-        for idx, label in enumerate((tr("月"), tr("火"), tr("水"), tr("木"), tr("金"), tr("土"), tr("日"))):
-            self.weekday_box.addItem(tr("%s曜日") % label, idx)
+        for idx in WEEKDAY_ORDER:
+            self.weekday_box.addItem(tr("%s曜日") % tr(WEEKDAY_LABELS[idx]), idx)
         weekday_row.addWidget(self.weekday_box)
         add_wd = QPushButton(tr("1年分を追加"))
         add_wd.clicked.connect(self._add_weekday_year)

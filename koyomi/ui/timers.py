@@ -21,6 +21,7 @@ from ..tonesmith import TONE_CATALOG
 from . import theme
 from .editor import SoundEditor
 from .stopwatch import StopwatchWindow
+from .widgets import sunday_first
 from ..i18n import tr
 
 MAX_TIMERS = 10
@@ -301,6 +302,7 @@ class TimerWindow(QDialog):
         self.target_field = QDateTimeEdit(
             QDateTime.currentDateTime().addDays(1))
         self.target_field.setCalendarPopup(True)
+        sunday_first(self.target_field)
         self.target_field.setDisplayFormat("yyyy/MM/dd HH:mm:ss")
         self.target_field.setMinimumDateTime(QDateTime.currentDateTime())
         tl.addWidget(self.target_field, 1)

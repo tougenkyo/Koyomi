@@ -1,8 +1,8 @@
 """自作の小さな部品。"""
 from __future__ import annotations
 
-from PySide6.QtCore import (Property, QEasingCurve, QPropertyAnimation, QRectF,
-                            QSize, Qt, Signal)
+from PySide6.QtCore import (Property, QEasingCurve, QEvent, QObject,
+                            QPropertyAnimation, QRectF, QSize, Qt, Signal)
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QLabel, QPushButton, QSizePolicy, QTimeEdit,
                                QWidget)
@@ -297,3 +297,31 @@ class SlideToAct(QWidget):
 
     def sizeHint(self) -> QSize:
         return QSize(320, 62)
+
+
+class _SundayOnOpen(QObject):
+    """カレンダーを開く型の日付欄に付き添い、開く直前に日曜はじめを効かせる。
+
+    日付欄のカレンダーは、初めて開くときに作られる。先に作らせると、
+    日付欄ひとつにつきカレンダーひと組を余計に抱え、編集画面が重くなる。
+    """
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress):
+            watched.removeEventFilter(self)
+            calendar = watched.calendarWidget()
+            if calendar is not None:
+                calendar.setFirstDayOfWeek(Qt.Sunday)
+        return False
+
+
+def sunday_first(widget) -> None:
+    """カレンダーを日曜はじめにする。
+
+    OS の地域設定が月曜はじめでも、アプリの中の並びは日曜はじめに揃える。
+    カレンダーを開く型の日付欄には、開かれるときに効かせる。
+    """
+    if hasattr(widget, "calendarWidget"):
+        widget.installEventFilter(_SundayOnOpen(widget))
+    else:
+        widget.setFirstDayOfWeek(Qt.Sunday)

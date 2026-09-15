@@ -396,6 +396,13 @@ class Wording(unittest.TestCase):
         self.assertEqual(planner.repeat_digest(item, almanac),
                          "毎日（祝日を除く）")
 
+    def test_weekdays_are_listed_from_sunday(self):
+        i18n.set_language("ja")
+        self.assertEqual(planner.weekday_digest([3, 6]), "日・木")
+        self.assertEqual(planner.weekday_digest([0, 2, 6]), "日・月・水")
+        self.assertEqual(planner.weekday_digest([6, 5]), "週末")
+        self.assertEqual(planner.weekday_digest([4, 0, 1, 2, 3]), "平日")
+
     def test_every_day_reads_differently_from_all_seven_weekdays(self):
         # 同じ日に鳴っても、一覧の見え方で区別が付くこと
         almanac = Almanac()
