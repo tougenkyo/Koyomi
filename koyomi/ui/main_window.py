@@ -23,6 +23,7 @@ from .bulk import BulkDialog
 from .datelists import DateListDialog
 from .editor import AlarmEditor
 from .floatbar import FloatBar
+from .placement import Placement
 from .ring_window import RingWindow
 from .settings import SettingsDialog
 from .timers import TimerWindow
@@ -215,6 +216,8 @@ class MainWindow(QMainWindow):
 
         self._build()
         self._build_tray()
+        # 前回の大きさと位置（最大化も）に戻す。出すか畳むかは app.py が決める
+        self.placement = Placement(self, vault, "main")
         self.reload()
         # 止まっていた間の分を先に数えてから、見張りを始める。先に見張りが回ると
         # 過ぎた「次は飛ばす」を下ろしてしまい、飛ばした回を取りこぼしと数える
@@ -563,6 +566,7 @@ class MainWindow(QMainWindow):
     def add_item(self) -> None:
         item = self.vault.prefs.new_item()
         dialog = AlarmEditor(item, self.vault, self.engine, self, tr("アラームを追加"))
+        Placement(dialog, self.vault, "alarm_editor", position=False)
         if dialog.exec() == QDialog.Accepted:
             self.vault.add(dialog.result_item())
             self.after_change()
@@ -570,6 +574,7 @@ class MainWindow(QMainWindow):
 
     def edit_item(self, item: WakeItem) -> None:
         dialog = AlarmEditor(item, self.vault, self.engine, self)
+        Placement(dialog, self.vault, "alarm_editor", position=False)
         if dialog.exec() == QDialog.Accepted:
             self.vault.replace(dialog.result_item())
             self.after_change()
@@ -710,6 +715,7 @@ class MainWindow(QMainWindow):
             self.flash_status(tr("アラームがありません。"))
             return
         dialog = BulkDialog(self.vault.items, self.vault, self)
+        Placement(dialog, self.vault, "bulk", position=False)
         if dialog.exec() != QDialog.Accepted:
             return
         uids = dialog.chosen_uids()
@@ -789,12 +795,15 @@ class MainWindow(QMainWindow):
         menu.exec(self.cursor().pos())
 
     def open_date_lists(self) -> None:
-        DateListDialog(self.vault.almanac, self).exec()
+        dialog = DateListDialog(self.vault.almanac, self)
+        Placement(dialog, self.vault, "date_lists", position=False)
+        dialog.exec()
         self.after_change()
 
     def open_timers(self) -> None:
         if self.timer_window is None:
             self.timer_window = TimerWindow(self.vault, self.engine, self)
+            Placement(self.timer_window, self.vault, "timers")
             self.timer_window.finished.connect(self._forget_timers)
         self.timer_window.show()
         self.timer_window.raise_()
@@ -807,6 +816,7 @@ class MainWindow(QMainWindow):
     def open_world_clock(self) -> None:
         if self.world_window is None:
             self.world_window = WorldClockWindow(self.vault, self)
+            Placement(self.world_window, self.vault, "world_clock")
             self.world_window.finished.connect(self._forget_world)
         self.world_window.show()
         self.world_window.raise_()
@@ -819,6 +829,7 @@ class MainWindow(QMainWindow):
     def open_todo(self) -> None:
         if self.todo_window is None:
             self.todo_window = TodoWindow(self.vault, self)
+            Placement(self.todo_window, self.vault, "todo")
             self.todo_window.finished.connect(self._forget_todo)
         self.todo_window.show()
         self.todo_window.raise_()
@@ -872,6 +883,7 @@ class MainWindow(QMainWindow):
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.vault, self.engine, self)
+        Placement(dialog, self.vault, "settings", position=False)
         if dialog.exec() == QDialog.Accepted:
             theme.apply(self.vault.prefs.theme)
             i18n.set_language(self.vault.prefs.language)
@@ -1048,7 +1060,11 @@ class MainWindow(QMainWindow):
     # 終了まわり
     # ------------------------------------------------------------------
     def _restore_window(self) -> None:
-        self.showNormal()
+        # showNormal() だと、最大化していた窓が元の大きさに縮んでしまう。
+        # 最小化だけを解いて、ほかの状態はそのまま出す
+        self.setWindowState((self.windowState() & ~Qt.WindowMinimized)
+                            | Qt.WindowActive)
+        self.show()
         self.raise_()
         self.activateWindow()
 
@@ -1127,10 +1143,11 @@ class MainWindow(QMainWindow):
                     APP_TITLE, tr("常駐しています。アラームは動き続けます。"),
                     QSystemTrayIcon.Information, 5000)
                 self.vault.prefs.tray_hint_shown = True
-                try:
-                    self.vault.save()
-                except Exception:      # noqa: BLE001 - 案内のためだけに落とさない
-                    pass
+            # 畳むたびに残す。このあと Windows ごと終わっても、窓の大きさが残るように
+            try:
+                self.vault.save()
+            except Exception:          # noqa: BLE001 - 保存できなくても畳むのは止めない
+                pass
             return
         self._teardown()
         super().closeEvent(event)

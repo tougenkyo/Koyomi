@@ -469,6 +469,7 @@ class Prefs:
     theme: str = "yoichi-kohaku"
     language: str = "ja"
     float_bar: bool = False
+    window_sizes: dict = field(default_factory=dict)   # 窓ごとの大きさの控え
 
     # 電源まわり
     wake_pc: bool = True               # 時刻に合わせて PC を起こす
@@ -501,6 +502,8 @@ class Prefs:
         obj = cls(**known)
         if not obj.default_item:
             obj.default_item = WakeItem().to_dict()
+        if not isinstance(obj.window_sizes, dict):
+            obj.window_sizes = {}
         obj.quick_actions = [a for a in obj.quick_actions if a in QUICK_ACTIONS][:3]
         for cand in QUICK_ACTIONS:
             if len(obj.quick_actions) >= 3:

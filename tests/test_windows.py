@@ -666,6 +666,160 @@ class SilenceHidesWhatDoesNotApply(unittest.TestCase):
         self.assertFalse(saved.notify_silent_run)
 
 
+class WindowSizes(unittest.TestCase):
+    """窓の大きさを覚えて、次に開いたときに戻すこと。"""
+
+    def setUp(self):
+        i18n.set_language("ja")
+        self.vault = sample_vault()
+        self.engine = quiet_engine()
+        mock.patch.object(Vault, "save").start()
+        self.addCleanup(mock.patch.stopall)
+
+    def open_main(self):
+        from koyomi.ui.main_window import MainWindow
+        win = MainWindow(self.vault, self.engine)
+        self.addCleanup(self._shut, win)
+        return win
+
+    @staticmethod
+    def _shut(win):
+        win._quitting = True
+        win.close()
+
+    @staticmethod
+    def as_restored(window_class, minimum, blob):
+        """同じ控えを素の窓に当てたときの大きさ。画面で削られる分も同じになる。"""
+        control = window_class()
+        control.setMinimumSize(minimum)
+        control.restoreGeometry(blob)
+        return control.size()
+
+    def test_the_main_window_comes_back_at_the_size_it_was_left(self):
+        from PySide6.QtWidgets import QMainWindow
+        first = self.open_main()
+        first.show()
+        first.resize(790, 700)
+        _app.processEvents()
+        blob = first.saveGeometry()
+        first.hide()                                   # トレイへ畳む
+        self.assertIn("main", self.vault.prefs.window_sizes)
+        second = self.open_main()                      # 起動し直す
+        self.assertEqual(second.size(),
+                         self.as_restored(QMainWindow, first.minimumSize(), blob))
+        self.assertEqual(second.size().toTuple(), (790, 700))
+
+    def test_a_maximized_window_stays_maximized_when_opened_from_the_tray(self):
+        win = self.open_main()
+        win.showMaximized()
+        _app.processEvents()
+        win.hide()
+        win._restore_window()
+        self.assertTrue(win.isMaximized(), "トレイから開くと最大化が解ける")
+
+    def test_maximized_is_remembered_across_a_restart(self):
+        first = self.open_main()
+        first.showMaximized()
+        _app.processEvents()
+        first.hide()
+        second = self.open_main()
+        second._restore_window()
+        self.assertTrue(second.isMaximized())
+
+    def test_a_window_left_in_the_tray_keeps_the_old_size(self):
+        first = self.open_main()
+        first.show()
+        first.resize(790, 700)
+        _app.processEvents()
+        first.hide()
+        stored = self.vault.prefs.window_sizes["main"]
+        second = self.open_main()                      # 自動起動でトレイに畳んだまま
+        self._shut(second)                             # 一度も開かずに終える
+        self.assertEqual(self.vault.prefs.window_sizes["main"], stored)
+
+    def test_a_broken_note_is_ignored(self):
+        self.vault.prefs.window_sizes["main"] = "壊れた控え"
+        win = self.open_main()
+        win.show()
+        _app.processEvents()
+        self.assertGreaterEqual(win.width(), win.minimumWidth())
+
+    def test_the_timer_window_reopens_at_its_last_size(self):
+        from PySide6.QtWidgets import QDialog
+        win = self.open_main()
+        win.open_timers()
+        win.timer_window.resize(700, 720)
+        _app.processEvents()
+        blob = win.timer_window.saveGeometry()
+        minimum = win.timer_window.minimumSize()
+        win.timer_window.close()
+        self.assertIsNone(win.timer_window)
+        win.open_timers()
+        self.assertEqual(win.timer_window.size(),
+                         self.as_restored(QDialog, minimum, blob))
+        self.assertEqual(win.timer_window.size().toTuple(), (700, 720))
+
+    def test_dialogs_keep_their_size_but_still_open_over_the_main_window(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QDialog
+        win = self.open_main()
+        item = self.vault.items[0]
+        sizes, moved = [], []
+
+        def use(dialog):
+            sizes.append(dialog.size().toTuple())
+            moved.append(dialog.testAttribute(Qt.WA_Moved))
+            dialog.show()
+            dialog.resize(700, 680)
+            _app.processEvents()
+            dialog.hide()
+            return QDialog.Rejected
+
+        with mock.patch.object(QDialog, "exec", use):
+            win.edit_item(item)
+            self.assertEqual(self.vault.prefs.window_sizes["alarm_editor"], "700x680")
+            win.edit_item(item)
+        self.assertEqual(sizes[1], (700, 680))
+        self.assertEqual(moved, [False, False],
+                         "位置まで戻すと、本体の真ん中に出なくなる")
+
+    def test_every_resizable_dialog_is_looked_after(self):
+        from PySide6.QtWidgets import QDialog
+        from koyomi.ui.placement import Placement
+        win = self.open_main()
+        seen = {}
+
+        def use(dialog):
+            seen[type(dialog).__name__] = dialog.findChild(Placement) is not None
+            return QDialog.Rejected
+
+        with mock.patch.object(QDialog, "exec", use):
+            win.add_item()
+            win.open_settings()
+            win.open_bulk()
+            win.open_date_lists()
+        self.assertEqual(seen, {"AlarmEditor": True, "SettingsDialog": True,
+                                "BulkDialog": True, "DateListDialog": True})
+
+    def test_the_notes_survive_saving(self):
+        from koyomi.models import Prefs
+        self.vault.prefs.window_sizes = {"main": "AAAA", "settings": "600x700"}
+        again = Prefs.from_dict(self.vault.prefs.to_dict())
+        self.assertEqual(again.window_sizes, {"main": "AAAA", "settings": "600x700"})
+        self.assertEqual(Prefs.from_dict({"window_sizes": "壊れた"}).window_sizes, {})
+
+    def test_a_restored_backup_does_not_strand_the_notes(self):
+        # 復元で設定の器が差し替わっても、新しい器のほうへ控える
+        win = self.open_main()
+        win.show()
+        _app.processEvents()
+        self.vault.apply(self.vault.snapshot())
+        self.vault.prefs.window_sizes.clear()
+        win.resize(790, 700)
+        _app.processEvents()
+        self.assertIn("main", self.vault.prefs.window_sizes)
+
+
 class TrayHint(unittest.TestCase):
     def test_the_notice_is_shown_only_once_ever(self):
         from koyomi.ui.main_window import MainWindow
