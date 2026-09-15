@@ -3,6 +3,9 @@
 pythonw.exe には標準出力も標準エラーも無いので、
 つまずいた跡が控えのファイルに残ることを見ておく。
 """
+import _home
+_home.guard()   # 本物の %APPDATA% を触らせない。koyomi を読み込む前に済ませる
+
 import contextlib
 import importlib.machinery
 import importlib.util

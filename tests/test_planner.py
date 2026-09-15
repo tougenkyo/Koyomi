@@ -1,4 +1,7 @@
 """次回鳴動時刻の計算を確かめる。"""
+import _home
+_home.guard()   # 本物の %APPDATA% を触らせない。koyomi を読み込む前に済ませる
+
 import datetime as dt
 import unittest
 

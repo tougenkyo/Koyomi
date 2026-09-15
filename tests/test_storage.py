@@ -1,4 +1,7 @@
 """保存と読み直し、連動動作の隔離を確かめる。"""
+import _home
+_home.guard()   # 本物の %APPDATA% を触らせない。koyomi を読み込む前に済ませる
+
 import datetime as dt
 import os
 import pathlib
@@ -274,6 +277,15 @@ class Companion(unittest.TestCase):
     def test_nothing_to_do_is_quiet(self):
         self.assertEqual(check(LaunchPlan()), "")
         self.assertEqual(run(LaunchPlan(), at_stop=False), "")
+
+class StaysOutOfRealData(unittest.TestCase):
+    """テストが本物の保存先に書き込まないこと。"""
+
+    def test_the_store_points_at_the_test_home(self):
+        from koyomi import vault
+        home = os.path.normcase(os.path.abspath(os.environ[_home.KEY]))
+        store = os.path.normcase(os.path.abspath(vault.STORE_PATH))
+        self.assertTrue(store.startswith(home), vault.STORE_PATH)
 
 
 if __name__ == "__main__":

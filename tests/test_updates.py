@@ -1,4 +1,7 @@
 """自動起動の登録と、新しい版の見つけ方を確かめる。"""
+import _home
+_home.guard()   # 本物の %APPDATA% を触らせない。koyomi を読み込む前に済ませる
+
 import json
 import unittest
 from unittest import mock
