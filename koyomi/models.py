@@ -121,6 +121,9 @@ class ListOrder(str, Enum):
 WEEKDAY_LABELS = ("月", "火", "水", "木", "金", "土", "日")
 # 画面に並べる順。日曜はじめ。番号は date.weekday() と同じく月曜を 0 とする
 WEEKDAY_ORDER = (6, 0, 1, 2, 3, 4, 5)
+# 毎月・第n曜日で選べる週と、その呼び名。1..5 が第n週、0 が最終週。
+# 画面にはこの順に並べる。英語では序数の形が数ごとに違うので、1 つずつ訳す
+NTH_WEEKS = {1: "第1", 2: "第2", 3: "第3", 4: "第4", 5: "第5", 0: "最終"}
 
 
 def as_enum(enum_cls, value, fallback=None):
@@ -151,6 +154,7 @@ class RepeatRule:
     step_days: int = 2                             # EVERY_N_DAYS
     day_of_month: int = 1                          # DAY_OF_MONTH (0 = 月末)
     week_index: int = 1                            # NTH_WEEKDAY: 1..5, 0 = 最終
+    week_indexes: list = field(default_factory=list)  # NTH_WEEKDAY: 複数の週。空なら week_index
     weekday: int = 0                               # NTH_WEEKDAY
     month: int = 1                                 # ANNUAL
     day: int = 1                                   # ANNUAL
@@ -167,6 +171,14 @@ class RepeatRule:
                 pass
         return dt.date.today()
 
+    def nth_weeks(self) -> list:
+        """毎月・第n曜日で鳴らす週を、画面の並び順で返す。
+
+        週を 1 つしか選べなかった頃の保存データは ``week_index`` だけを持つ。
+        """
+        picked = {max(0, int(w)) for w in (self.week_indexes or [self.week_index])}
+        return [w for w in NTH_WEEKS if w in picked]
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["cycle"] = as_enum(Cycle, self.cycle).value
@@ -177,6 +189,8 @@ class RepeatRule:
         d = dict(d or {})
         d["cycle"] = Cycle(d.get("cycle", Cycle.SINGLE.value))
         d["weekdays"] = sorted({int(x) for x in d.get("weekdays", [])})
+        weeks = {int(x) for x in d.get("week_indexes", [])}
+        d["week_indexes"] = [w for w in NTH_WEEKS if w in weeks]
         d["mark_lists"] = [str(x) for x in d.get("mark_lists", [])]
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 

@@ -75,8 +75,12 @@ WORDS = {
     "週末": "Weekends",
     "曜日未選択": "no weekday chosen",
     "週": "Week",
-    "第%d": "week %d",
-    "最終": "Last",
+    "第1": "1st",
+    "第2": "2nd",
+    "第3": "3rd",
+    "第4": "4th",
+    "第5": "5th",
+    "最終": "last",
     "年": "",
     "月": "Mon",
 
@@ -96,6 +100,9 @@ WORDS = {
     "毎月 %d日": "day %d of every month",
     "毎月 末日": "last day of every month",
     "毎月 %s%s曜": "%s %s of every month",
+    "週は複数選べます（第2と第4 など）。第5 は、その曜日が 5 回ある月だけ鳴ります。":
+        "You can pick more than one week (such as the 2nd and 4th). "
+        "The 5th rings only in months that have five of that weekday.",
     "毎年 %d/%d": "every year on %d/%d",
     "%d日鳴らして%d日休む": "%d days on, %d days off",
     "毎月": "Every month",

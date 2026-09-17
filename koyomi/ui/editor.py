@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,
 from .. import planner
 from ..actions import (LaunchPlan, check as check_launch, run_now,
                        split_arguments, work_log_path)
-from ..models import (WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle, Guard, GuardPlan,
-                      SnoozeOrigin, SoundPlan, ToneKind, Toughness, WakeItem,
-                      as_enum)
+from ..models import (NTH_WEEKS, WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle, Guard,
+                      GuardPlan, SnoozeOrigin, SoundPlan, ToneKind, Toughness,
+                      WakeItem, as_enum)
 from ..player import AUDIO_SUFFIXES
 from ..tonesmith import TONE_CATALOG
 from . import guards, theme
@@ -371,13 +371,18 @@ class RepeatEditor(QWidget):
         # 6: 毎月・第n曜日
         page = QWidget()
         pl = QFormLayout(page)
-        self.week_box = QComboBox()
-        for n in range(1, 6):
-            self.week_box.addItem(tr("第%d") % n, n)
-        self.week_box.addItem(tr("最終"), 0)
-        hit = self.week_box.findData(rule.week_index)
-        self.week_box.setCurrentIndex(hit if hit >= 0 else 0)
-        pl.addRow(tr("週"), self.week_box)
+        # 週は複数選べる（第2と第4、など）。week_boxes は週の番号で引く
+        chosen = rule.nth_weeks() or [1]
+        weeks = QHBoxLayout()
+        self.week_boxes = {}
+        for n, label in NTH_WEEKS.items():
+            box = QCheckBox(tr(label))
+            box.setChecked(n in chosen)
+            box.toggled.connect(lambda on, b=box: self._keep_a_week(b, on))
+            weeks.addWidget(box)
+            self.week_boxes[n] = box
+        weeks.addStretch(1)
+        pl.addRow(tr("週"), weeks)
         self.nth_weekday = QComboBox()
         for idx in WEEKDAY_ORDER:
             self.nth_weekday.addItem(tr("%s曜日") % tr(WEEKDAY_LABELS[idx]), idx)
@@ -385,6 +390,8 @@ class RepeatEditor(QWidget):
         hit = self.nth_weekday.findData(rule.weekday)
         self.nth_weekday.setCurrentIndex(hit if hit >= 0 else 0)
         pl.addRow(tr("曜日"), self.nth_weekday)
+        pl.addRow(self._note(tr("週は複数選べます（第2と第4 など）。"
+                                "第5 は、その曜日が 5 回ある月だけ鳴ります。")))
         self.stack.addWidget(page)
 
         # 7: 毎年
@@ -433,6 +440,11 @@ class RepeatEditor(QWidget):
         for idx, box in enumerate(self.weekday_boxes):
             box.setChecked(idx in days)
 
+    def _keep_a_week(self, box, on) -> None:
+        # 週が 1 つも無いと鳴る日が無くなるので、最後の 1 つは外させない
+        if not on and not any(b.isChecked() for b in self.week_boxes.values()):
+            box.setChecked(True)
+
     def _sync(self) -> None:
         self.stack.setCurrentIndex(self.cycle_box.currentIndex())
 
@@ -454,7 +466,9 @@ class RepeatEditor(QWidget):
         elif cycle == Cycle.DAY_OF_MONTH:
             rule.day_of_month = self.dom_box.currentData()
         elif cycle == Cycle.NTH_WEEKDAY:
-            rule.week_index = self.week_box.currentData()
+            rule.week_indexes = [n for n, box in self.week_boxes.items() if box.isChecked()]
+            # 週を 1 つしか読めない版でも、少なくともその週には鳴るように
+            rule.week_index = rule.week_indexes[0]
             rule.weekday = self.nth_weekday.currentData()
         elif cycle == Cycle.ANNUAL:
             rule.month = self.annual_date.date().month()

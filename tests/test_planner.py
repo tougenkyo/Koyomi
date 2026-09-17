@@ -86,6 +86,28 @@ class Repeats(unittest.TestCase):
         self.assertEqual(days(item, self.almanac, 2),
                          ["2026/08/28", "2026/09/25"])
 
+    def test_nth_weekday_can_take_several_weeks(self):
+        # 第 2・第 4 木曜日。8/27 は第 4 木曜日
+        item = alarm(repeat=RepeatRule(cycle=Cycle.NTH_WEEKDAY,
+                                       week_indexes=[2, 4], weekday=3))
+        self.assertEqual(days(item, self.almanac, 5),
+                         ["2026/08/27", "2026/09/10", "2026/09/24",
+                          "2026/10/08", "2026/10/22"])
+
+    def test_fourth_and_last_are_one_day_when_the_month_has_four(self):
+        # 9 月の木曜は 4 回（第 4 = 最終）、10 月は 5 回
+        item = alarm(repeat=RepeatRule(cycle=Cycle.NTH_WEEKDAY,
+                                       week_indexes=[4, 0], weekday=3))
+        self.assertEqual(days(item, self.almanac, 5),
+                         ["2026/08/27", "2026/09/24", "2026/10/22",
+                          "2026/10/29", "2026/11/26"])
+
+    def test_fifth_week_rings_only_in_months_that_have_one(self):
+        item = alarm(repeat=RepeatRule(cycle=Cycle.NTH_WEEKDAY,
+                                       week_indexes=[5], weekday=3))
+        self.assertEqual(days(item, self.almanac, 2),
+                         ["2026/10/29", "2026/12/31"])
+
     def test_run_rest_cycle(self):
         item = alarm(repeat=RepeatRule(cycle=Cycle.RUN_REST, run_days=3,
                                        rest_days=2, anchor="2026-08-27"))
@@ -405,6 +427,25 @@ class Wording(unittest.TestCase):
         self.assertEqual(planner.weekday_digest([0, 2, 6]), "日・月・水")
         self.assertEqual(planner.weekday_digest([6, 5]), "週末")
         self.assertEqual(planner.weekday_digest([4, 0, 1, 2, 3]), "平日")
+
+    def test_repeat_digest_lists_every_chosen_week(self):
+        i18n.set_language("ja")
+        item = alarm(repeat=RepeatRule(cycle=Cycle.NTH_WEEKDAY,
+                                       week_indexes=[4, 2], weekday=3))
+        self.assertEqual(planner.repeat_digest(item), "毎月 第2・第4木曜")
+        item.repeat.week_indexes = [0, 1]
+        self.assertEqual(planner.repeat_digest(item), "毎月 第1・最終木曜")
+        item.repeat = RepeatRule(cycle=Cycle.NTH_WEEKDAY, week_index=2, weekday=0)
+        self.assertEqual(planner.repeat_digest(item), "毎月 第2月曜")
+
+    def test_repeat_digest_uses_ordinals_in_english(self):
+        self.addCleanup(i18n.set_language, "ja")
+        i18n.set_language("en")
+        item = alarm(repeat=RepeatRule(cycle=Cycle.NTH_WEEKDAY,
+                                       week_indexes=[2, 4], weekday=3))
+        self.assertEqual(planner.repeat_digest(item), "2nd, 4th Thu of every month")
+        item.repeat.week_indexes = [0]
+        self.assertEqual(planner.repeat_digest(item), "last Thu of every month")
 
     def test_every_day_reads_differently_from_all_seven_weekdays(self):
         # 同じ日に鳴っても、一覧の見え方で区別が付くこと

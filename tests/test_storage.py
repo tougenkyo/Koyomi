@@ -35,6 +35,26 @@ class Serialisation(unittest.TestCase):
         self.assertIsInstance(again.stop_guard.style, Guard)
         self.assertIsInstance(again.sound.kind, ToneKind)
 
+    def test_several_weeks_survive_a_round_trip(self):
+        item = WakeItem()
+        item.repeat = RepeatRule(cycle=Cycle.NTH_WEEKDAY, week_index=2,
+                                 week_indexes=[2, 4], weekday=3)
+        again = WakeItem.from_dict(item.to_dict())
+        self.assertEqual(again.repeat.nth_weeks(), [2, 4])
+        self.assertEqual(again.to_dict(), item.to_dict())
+
+    def test_a_rule_saved_with_one_week_keeps_that_week(self):
+        # 週を複数選べるようになる前の保存データ
+        rule = RepeatRule.from_dict({"cycle": "nth_wday", "week_index": 0,
+                                     "weekday": 4})
+        self.assertEqual(rule.week_indexes, [])
+        self.assertEqual(rule.nth_weeks(), [0])
+
+    def test_saved_weeks_are_tidied_when_read(self):
+        rule = RepeatRule.from_dict({"cycle": "nth_wday",
+                                     "week_indexes": [0, "4", 2, 4, 9]})
+        self.assertEqual(rule.week_indexes, [2, 4, 0])
+
     def test_as_enum_recovers_plain_strings(self):
         # Qt のウィジェットに預けると素の文字列で返ってくることがある
         self.assertIs(as_enum(Cycle, "weekdays"), Cycle.WEEKDAYS)

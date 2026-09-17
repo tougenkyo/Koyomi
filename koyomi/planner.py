@@ -9,7 +9,8 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 
-from .models import WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle, RepeatRule, WakeItem
+from .models import (NTH_WEEKS, WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle,
+                     RepeatRule, WakeItem)
 from .i18n import tr
 
 SEARCH_HORIZON_DAYS = 800
@@ -67,8 +68,10 @@ def day_matches(rule: RepeatRule, day: dt.date, almanac=None) -> bool:
         return day.day == rule.day_of_month
 
     if cycle == Cycle.NTH_WEEKDAY:
-        target = _nth_weekday_of_month(day.year, day.month, rule.weekday, rule.week_index)
-        return target == day
+        if day.weekday() != rule.weekday:
+            return False
+        return any(_nth_weekday_of_month(day.year, day.month, rule.weekday, n) == day
+                   for n in rule.nth_weeks())
 
     if cycle == Cycle.ANNUAL:
         if rule.month == 2 and rule.day == 29 and not calendar.isleap(day.year):
@@ -303,7 +306,7 @@ def repeat_digest(item: WakeItem, almanac=None) -> str:
     elif cycle == Cycle.DAY_OF_MONTH:
         text = tr("毎月 末日") if rule.day_of_month <= 0 else tr("毎月 %d日") % rule.day_of_month
     elif cycle == Cycle.NTH_WEEKDAY:
-        nth = tr("最終") if rule.week_index <= 0 else tr("第%d") % rule.week_index
+        nth = tr("・").join(tr(NTH_WEEKS[n]) for n in rule.nth_weeks())
         text = tr("毎月 %s%s曜") % (nth, tr(WEEKDAY_LABELS[rule.weekday]))
     elif cycle == Cycle.ANNUAL:
         text = tr("毎年 %d/%d") % (rule.month, rule.day)

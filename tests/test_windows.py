@@ -403,6 +403,59 @@ class SundayFirst(unittest.TestCase):
             self.assertIsNone(field.findChild(QCalendarWidget))
 
 
+class NthWeeks(unittest.TestCase):
+    """毎月・第n曜日で、週を複数選べること。"""
+
+    def setUp(self):
+        i18n.set_language("ja")
+        self.vault = Vault()
+
+    def editor(self, **kw):
+        from koyomi.ui.editor import RepeatEditor
+        item = WakeItem(repeat=RepeatRule(cycle=Cycle.NTH_WEEKDAY, **kw))
+        return RepeatEditor(item, self.vault.almanac)
+
+    @staticmethod
+    def ticked(editor):
+        return [n for n, box in editor.week_boxes.items() if box.isChecked()]
+
+    def test_second_and_fourth_thursday_fit_in_one_alarm(self):
+        editor = self.editor(week_index=1, weekday=3)
+        editor.week_boxes[2].setChecked(True)
+        editor.week_boxes[4].setChecked(True)
+        editor.week_boxes[1].setChecked(False)
+        rule = editor.value()
+        self.assertEqual(rule.week_indexes, [2, 4])
+        self.assertEqual(rule.week_index, 2)      # 週を 1 つしか読めない版への控え
+        self.assertEqual(rule.weekday, 3)
+
+    def test_the_weeks_run_from_the_first_to_the_last(self):
+        editor = self.editor()
+        self.assertEqual([box.text() for box in editor.week_boxes.values()],
+                         ["第1", "第2", "第3", "第4", "第5", "最終"])
+
+    def test_it_opens_with_the_saved_weeks_ticked(self):
+        editor = self.editor(week_indexes=[2, 0], weekday=3)
+        self.assertEqual(self.ticked(editor), [2, 0])
+        self.assertEqual(editor.nth_weekday.currentText(), "木曜日")
+
+    def test_an_alarm_saved_with_one_week_opens_with_that_week(self):
+        editor = self.editor(week_index=0, weekday=4)
+        self.assertEqual(self.ticked(editor), [0])
+        self.assertEqual(editor.value().week_indexes, [0])
+
+    def test_the_last_ticked_week_cannot_be_cleared(self):
+        editor = self.editor(week_index=3, weekday=3)
+        editor.week_boxes[3].setChecked(False)
+        self.assertTrue(editor.week_boxes[3].isChecked())
+        self.assertEqual(editor.value().week_indexes, [3])
+
+    def test_a_week_that_cannot_exist_opens_as_the_first(self):
+        editor = self.editor(week_index=7, weekday=3)
+        self.assertEqual(self.ticked(editor), [1])
+        self.assertEqual(editor.value().week_indexes, [1])
+
+
 class RepeatPicker(unittest.TestCase):
     """繰り返しの選択肢と、その入力欄の対応。"""
 

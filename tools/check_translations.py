@@ -42,7 +42,7 @@ def wrapped_strings() -> set:
 
 def table_strings() -> set:
     """モジュール直下のラベル表。読み出す側で tr() を通している。"""
-    from koyomi.models import (DEFAULT_DATE_LISTS, DEFAULT_GROUPS,
+    from koyomi.models import (DEFAULT_DATE_LISTS, DEFAULT_GROUPS, NTH_WEEKS,
                                QUICK_ACTIONS, WEEKDAY_LABELS, _CYCLE_LABELS,
                                _GUARD_LABELS)
     from koyomi.tonesmith import TONE_CATALOG
@@ -52,6 +52,7 @@ def table_strings() -> set:
 
     found = set(WEEKDAY_LABELS)
     for source in (QUICK_ACTIONS.values(), _CYCLE_LABELS.values(),
+                   NTH_WEEKS.values(),
                    _GUARD_LABELS.values(), TONE_CATALOG.values(),
                    SHAPE_NAMES.values(), COLOR_NAMES.values(),
                    DEFAULT_GROUPS.values(), DEFAULT_DATE_LISTS.values(),
