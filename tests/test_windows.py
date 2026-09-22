@@ -51,7 +51,11 @@ class Windows(unittest.TestCase):
     def setUp(self):
         i18n.set_language("ja")
         theme.apply("yoichi-kohaku")
-        _app.setStyleSheet(theme.stylesheet())
+        sheet = theme.stylesheet()
+        # 同じものを当て直すと、それまでのテストで作った窓がすべて塗り直され、
+        # 1 件ごとに遅くなっていく
+        if _app.styleSheet() != sheet:
+            _app.setStyleSheet(sheet)
         self.vault = sample_vault()
         self.engine = quiet_engine()
 

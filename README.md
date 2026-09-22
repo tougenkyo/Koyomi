@@ -239,6 +239,7 @@ tools/
   make_shortcut.py        ショートカットを作る
   bump_version.py         版番号を進める
   check_translations.py   対訳表の抜けを調べる
+  run_tests.py            テストを走らせ、落ちたものと遅いものを知らせる
 koyomi/
   models.py               データ型（WakeItem, RepeatRule, SoundPlan, ...）
   planner.py              次回鳴動時刻の計算と表示用の文字列

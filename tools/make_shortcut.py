@@ -17,9 +17,8 @@
 from __future__ import annotations
 
 import argparse
-import base64
+import ctypes
 import os
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,6 +29,18 @@ from koyomi.autostart import TRAY_FLAG, _launcher  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.path.join(ROOT, "run.pyw")
 LINK_NAME = APP_TITLE + ".lnk"
+
+# ショートカットを扱う Windows の部品（COM）の名前
+_SHELL_LINK = "{00021401-0000-0000-C000-000000000046}"
+_I_SHELL_LINK_W = "{000214F9-0000-0000-C000-000000000046}"
+_I_PERSIST_FILE = "{0000010B-0000-0000-C000-000000000046}"
+_IN_PROCESS = 1                     # CLSCTX_INPROC_SERVER
+_CHANGED_MODE = -2147417850         # RPC_E_CHANGED_MODE: COM が別の方式で始まっていた
+
+
+class _Guid(ctypes.Structure):
+    _fields_ = [("data1", ctypes.c_uint32), ("data2", ctypes.c_uint16),
+                ("data3", ctypes.c_uint16), ("data4", ctypes.c_ubyte * 8)]
 
 
 def desktop() -> str:
@@ -47,9 +58,55 @@ def icon_file() -> str:
     return ensure_ico()
 
 
-def _quoted(text: str) -> str:
-    """PowerShell の単引用符の中に置ける形にする。"""
-    return "'" + text.replace("'", "''") + "'"
+def _guid(text: str) -> _Guid:
+    found = _Guid()
+    ctypes.oledll.ole32.CLSIDFromString(text, ctypes.byref(found))
+    return found
+
+
+def _call(obj, index: int, argtypes=(), restype=None):
+    """COM の口 ``obj`` が持つ手続きのうち、``index`` 番目を呼べる形で返す。"""
+    table = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    proto = ctypes.WINFUNCTYPE(restype or ctypes.HRESULT, ctypes.c_void_p, *argtypes)
+    return lambda *args: proto(table[index])(obj, *args)
+
+
+def write_link(path: str, target: str, arguments: str, folder: str,
+               icon: str, note: str) -> None:
+    """.lnk を書く。
+
+    WScript.Shell を通すと、文字がいったん OS の文字コードに直される。
+    英語版 Windows では日本語の名前が「?」に化けて保存できないので、
+    ショートカットの部品（IShellLinkW）に UTF-16 のまま渡す。
+    """
+    ole32 = ctypes.oledll.ole32
+    try:
+        ole32.CoInitialize(None)
+        started = True
+    except OSError as err:
+        if err.winerror != _CHANGED_MODE:
+            raise
+        started = False                  # 始まっていた方式のまま使える
+    link, disk = ctypes.c_void_p(), ctypes.c_void_p()
+    text = ctypes.c_wchar_p
+    try:
+        ole32.CoCreateInstance(ctypes.byref(_guid(_SHELL_LINK)), None, _IN_PROCESS,
+                               ctypes.byref(_guid(_I_SHELL_LINK_W)), ctypes.byref(link))
+        # 数字は、それぞれの口で手続きが並んでいる順番
+        _call(link, 20, (text,))(target)                   # SetPath
+        _call(link, 11, (text,))(arguments)                # SetArguments
+        _call(link, 9, (text,))(folder)                    # SetWorkingDirectory
+        _call(link, 17, (text, ctypes.c_int))(icon, 0)     # SetIconLocation
+        _call(link, 7, (text,))(note)                      # SetDescription
+        _call(link, 0, (ctypes.POINTER(_Guid), ctypes.POINTER(ctypes.c_void_p)))(
+            ctypes.byref(_guid(_I_PERSIST_FILE)), ctypes.byref(disk))  # QueryInterface
+        _call(disk, 6, (text, ctypes.c_int))(path, 1)      # IPersistFile の Save
+    finally:
+        for obj in (disk, link):
+            if obj.value:
+                _call(obj, 2, restype=ctypes.c_ulong)()    # Release
+        if started:
+            ole32.CoUninitialize()
 
 
 def build(folder: str, minimized: bool = False) -> str:
@@ -59,23 +116,9 @@ def build(folder: str, minimized: bool = False) -> str:
     args = '"%s"' % ENTRY
     if minimized:
         args += " " + TRAY_FLAG
-
-    # 追加の部品を入れずに済むよう、Windows 自身の仕組みに作らせる。
-    # 日本語が化けないよう、命令ごと UTF-16 に直して渡す。
-    lines = [
-        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut(%s)" % _quoted(link),
-        "$s.TargetPath = %s" % _quoted(_launcher()),
-        "$s.Arguments = %s" % _quoted(args),
-        "$s.WorkingDirectory = %s" % _quoted(ROOT),
-        "$s.IconLocation = %s" % _quoted(icon_file()),
-        "$s.Description = %s" % _quoted("%s（コンソールを出さずに開く）" % APP_TITLE),
-        "$s.Save()",
-    ]
-    packed = base64.b64encode("\n".join(lines).encode("utf-16-le")).decode("ascii")
-    subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
-                    "-EncodedCommand", packed],
-                   check=True, capture_output=True,
-                   creationflags=0x08000000 if os.name == "nt" else 0)
+    # 追加の部品を入れずに済むよう、Windows 自身の仕組みに作らせる
+    write_link(link, _launcher(), args, ROOT, icon_file(),
+               "%s（コンソールを出さずに開く）" % APP_TITLE)
     return link
 
 

@@ -206,9 +206,6 @@ class Shortcut(unittest.TestCase):
     def setUp(self):
         self.maker = load_module("koyomi_shortcut", ROOT / "tools" / "make_shortcut.py")
 
-    def test_single_quotes_are_doubled(self):
-        self.assertEqual(self.maker._quoted("it's"), "'it''s'")
-
     def test_where_only_prints(self):
         said = io.StringIO()
         with mock.patch.object(self.maker, "build") as never,              contextlib.redirect_stdout(said):
@@ -226,6 +223,17 @@ class Shortcut(unittest.TestCase):
             # .lnk の中では文字が UTF-16 で並んでいる
             self.assertIn("run.pyw".encode("utf-16-le"), blob)
             self.assertIn("pythonw".encode("utf-16-le"), blob)
+
+    @unittest.skipUnless(sys.platform.startswith("win"), "Windows 以外")
+    def test_names_the_system_cannot_spell_are_kept(self):
+        # 英語版 Windows では、日本語の名前が「?」に化けて保存できなかった。
+        # 日本語版でも表せないハングルの置き場で、同じ条件を作る
+        with tempfile.TemporaryDirectory() as room:
+            with mock.patch.dict(os.environ, {"APPDATA": room}):
+                link = self.maker.build(os.path.join(room, "한글"))
+            self.assertTrue(os.path.exists(link))
+            blob = pathlib.Path(link).read_bytes()
+            self.assertIn("コンソールを出さずに開く".encode("utf-16-le"), blob)
 
 
 PNG_MARK = bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10])
