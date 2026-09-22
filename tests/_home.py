@@ -3,7 +3,10 @@
 ``python -m unittest discover -s tests`` で走らせると、tests/__init__.py は
 読まれない。どの走らせ方でも効くよう、各テストの先頭で ``guard()`` を呼ぶ。
 koyomi.vault は読み込んだ時点で保存先を決めるので、それより前に差し替える。
+
+英語版 Windows の文字コードで試すための ``english_windows()`` もここに置く。
 """
+import locale
 import os
 import sys
 import tempfile
@@ -27,6 +30,21 @@ def guard() -> str:
         raise RuntimeError("koyomi.vault が先に読み込まれ、本物の保存先を向いています: "
                            + loaded.STORE_PATH)
     return os.environ[KEY]
+
+
+def english_windows(case) -> None:
+    """そのテストのあいだだけ、英語版 Windows と同じ文字コードにする。
+
+    GitHub の CI が走る機械は英語版で、日本語の書式を strftime に渡すと
+    そこでだけ落ちる。日本語版の手元でも同じ条件で確かめられるように。
+    切り替えられない環境では、そのテストを飛ばす。
+    """
+    before = locale.setlocale(locale.LC_CTYPE)
+    try:
+        locale.setlocale(locale.LC_CTYPE, "English_United States.1252")
+    except locale.Error:
+        case.skipTest("英語版 Windows の文字コードに切り替えられない")
+    case.addCleanup(locale.setlocale, locale.LC_CTYPE, before)
 
 
 guard()

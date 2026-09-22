@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+import re
 
 from .models import (NTH_WEEKS, WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle,
                      RepeatRule, WakeItem)
@@ -380,3 +381,13 @@ def span_text(total_seconds: int) -> str:
     if secs and not days and not hours:
         parts.append(tr("%d秒") % secs)
     return " ".join(parts) or tr("0秒")
+
+
+def date_text(moment, pattern: str) -> str:
+    """``pattern`` の %Y などを ``moment`` の値で埋める。
+
+    Windows の strftime は、書式をいったん OS の文字コードへ直してから使う。
+    英語版の Windows では「年」「月」を直せずに落ちるので、日本語の混ざった
+    書式はそのまま渡さず、%Y のような指示子だけを 1 つずつ渡す。
+    """
+    return re.sub(r"%.", lambda hit: moment.strftime(hit.group()), pattern)

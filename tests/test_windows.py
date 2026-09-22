@@ -67,6 +67,16 @@ class Windows(unittest.TestCase):
             win._quitting = True
             win.close()
 
+    def test_main_window_opens_on_english_windows(self):
+        # 英語版の Windows では、今日の日付を書くところで落ちて開けなかった
+        _home.english_windows(self)
+        win = MainWindow(self.vault, self.engine)
+        try:
+            self.assertRegex(win.today_label.text(), r"^\d{4}年\d{2}月\d{2}日（.）")
+        finally:
+            win._quitting = True
+            win.close()
+
     def test_alarm_editor_writes_every_tab_back(self):
         from koyomi.ui.editor import AlarmEditor
         dialog = AlarmEditor(self.vault.items[0], self.vault, self.engine)

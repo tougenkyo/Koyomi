@@ -462,7 +462,7 @@ class MainWindow(QMainWindow):
         self.big_clock.setText(now.strftime("%H:%M:%S"))
         weekday = tr(WEEKDAY_LABELS[now.weekday()])
         holiday = self.vault.almanac.holiday_name(now.date())
-        text = now.strftime(tr("%Y年%m月%d日")) + tr("（%s）") % weekday
+        text = planner.date_text(now, tr("%Y年%m月%d日")) + tr("（%s）") % weekday
         if holiday:
             text += "　%s" % holiday
         self.today_label.setText(text)

@@ -392,6 +392,19 @@ class Seconds(unittest.TestCase):
 
 
 class Wording(unittest.TestCase):
+    def test_date_text_fills_in_the_pattern(self):
+        moment = dt.datetime(2026, 9, 21, 7, 5, 9)
+        self.assertEqual(planner.date_text(moment, "%Y年%m月%d日"), "2026年09月21日")
+        self.assertEqual(planner.date_text(moment, "%H:%M:%S"), "07:05:09")
+        self.assertEqual(planner.date_text(moment, "%b %d, %Y"), "Sep 21, 2026")
+        self.assertEqual(planner.date_text(moment, "100%%"), "100%")
+
+    def test_date_text_works_on_english_windows(self):
+        # 英語版の Windows では、日本語の書式を渡すと strftime が落ちる
+        _home.english_windows(self)
+        moment = dt.datetime(2026, 9, 21, 7, 5, 9)
+        self.assertEqual(planner.date_text(moment, "%Y年%m月%d日"), "2026年09月21日")
+
     def test_duration_text_grows_into_days(self):
         self.assertEqual(planner.duration_text(45), "0:45")
         self.assertEqual(planner.duration_text(3725), "1:02:05")
