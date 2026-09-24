@@ -48,6 +48,9 @@ _CYCLE_LABELS = {
     Cycle.RUN_REST: "鳴動／休止の周期",
 }
 
+# 1 回鳴れば済む繰り返し。鳴り終えると OFF になり、望めば一覧から消える
+ONE_SHOT = (Cycle.SINGLE, Cycle.ON_DATE)
+
 
 class ToneKind(str, Enum):
     """鳴動音の供給元。"""
@@ -323,7 +326,7 @@ class WakeItem:
 
     auto_stop_minutes: int = 5        # 0 で自動停止しない
     flash_screen: bool = True         # バイブレーションの代替
-    erase_after_stop: bool = False
+    erase_after_stop: bool = False    # 鳴り終えたら削除（1 回きりのものだけ）
     shrink_text: bool = False
     toggle_locked: bool = False       # ON/OFF スイッチの誤操作防止
 
@@ -346,6 +349,14 @@ class WakeItem:
 
     def time_of_day(self) -> dt.time:
         return dt.time(self.hour, self.minute, self.second)
+
+    def erases_when_done(self) -> bool:
+        """鳴り終えたら一覧から消すか。
+
+        消すのは 1 回きりのアラームだけ。繰り返すものに指定が残っていても、
+        この先の予定ごと消えてしまわないよう、使わない。
+        """
+        return self.erase_after_stop and self.repeat.cycle in ONE_SHOT
 
     def copy_as_new(self) -> "WakeItem":
         clone = WakeItem.from_dict(self.to_dict())

@@ -113,6 +113,8 @@ WORDS = {
     "次に来るこの時刻に 1 回だけ鳴らします。":
         "Rings once, at the next occurrence of this time.",
     "下のリストに入っている日も鳴らす": "Also ring on days in the lists below",
+    "鳴り終わったらこのアラームを削除する": "Delete this alarm after it has rung",
+    "実行したらこのアラームを削除する": "Delete this alarm after it has run",
 
     # ---- 鳴らさない日 ------------------------------------------------------
     "鳴らさない日": "Days to skip",
@@ -184,6 +186,7 @@ WORDS = {
     "複製しました。": "Duplicated.",
     "削除": "Delete",
     "「%s」を削除します。よろしいですか？": "Delete \"%s\"?",
+    "済んだら削除": "Delete when done",
     "いま鳴らしてみる": "Try ringing it now",
     "検索": "Search",
     "メニュー": "Menu",
@@ -243,7 +246,6 @@ WORDS = {
     "止め方　： %s": "Stop     : %s",
     "止める": "Stop",
     "止めたとき": "when stopped",
-    "止めたらこのアラームを削除する": "Delete this alarm once it is stopped",
     "鳴り始めたとき": "when it starts ringing",
     "鳴動時": "on ring",
     "停止時": "on stop",

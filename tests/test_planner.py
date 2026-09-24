@@ -7,7 +7,7 @@ import unittest
 
 from koyomi import i18n, planner
 from koyomi.almanac import Almanac
-from koyomi.models import Cycle, RepeatRule, WakeItem
+from koyomi.models import ONE_SHOT, Cycle, RepeatRule, WakeItem
 
 # 2026/08/27 は木曜日
 BASE = dt.datetime(2026, 8, 27, 6, 0)
@@ -336,6 +336,50 @@ class SkipWhileWatching(unittest.TestCase):
         self.vault.last_seen = "2026-09-12T23:30:00"
         self.director.sweep_missed(dt.datetime(2026, 9, 13, 9, 0))
         self.assertEqual(loose.skip_on, "2026-09-13")
+
+
+class DeleteWhenDone(unittest.TestCase):
+    """「鳴り終わったらこのアラームを削除する」。消えるのは 1 回きりのものだけ。"""
+
+    def setUp(self):
+        from koyomi.director import RingDirector
+        from koyomi.vault import Vault
+        self.vault = Vault()
+        self.director = RingDirector(self.vault)
+
+    def listed(self, cycle, erase=True) -> WakeItem:
+        item = alarm(repeat=RepeatRule(cycle=cycle), erase_after_stop=erase)
+        self.vault.add(item)
+        return item
+
+    def test_one_that_rings_once_goes_from_the_list(self):
+        for cycle in ONE_SHOT:
+            item = self.listed(cycle)
+            self.assertTrue(self.director.finish(item), cycle.value)
+            self.assertIsNone(self.vault.find(item.uid), cycle.value)
+
+    def test_without_the_tick_it_stays_as_off(self):
+        item = self.listed(Cycle.SINGLE, erase=False)
+        self.assertFalse(self.director.finish(item))
+        self.assertIs(self.vault.find(item.uid), item)
+        self.assertFalse(item.active)
+
+    def test_a_repeating_alarm_is_never_deleted(self):
+        # 指定が残っていても、この先の予定ごと消してはいけない
+        for cycle in Cycle:
+            if cycle in ONE_SHOT:
+                continue
+            item = self.listed(cycle)
+            self.assertFalse(self.director.finish(item), cycle.value)
+            self.assertIs(self.vault.find(item.uid), item, cycle.value)
+            self.assertTrue(item.active, cycle.value)
+
+    def test_a_ring_that_was_let_go_is_only_switched_off(self):
+        # ほかと重なって見送った回は鳴っていないので、消さずに残す
+        item = self.listed(Cycle.SINGLE)
+        self.director.settle_after_stop(item)
+        self.assertIs(self.vault.find(item.uid), item)
+        self.assertFalse(item.active)
 
 
 class MissedAlarms(unittest.TestCase):

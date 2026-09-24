@@ -11,7 +11,7 @@ import datetime as dt
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import planner
-from .models import Cycle, SnoozeOrigin, WakeItem
+from .models import ONE_SHOT, SnoozeOrigin, WakeItem
 
 # 発火の見張り間隔。秒指定のアラームがこれ以上は遅れない。
 CHECK_INTERVAL_MS = 250
@@ -160,8 +160,21 @@ class RingDirector(QObject):
         item.last_fired_at = dt.datetime.now().isoformat(timespec="seconds")
         # 「次は飛ばす」はここでは下ろさない。飛ばす回は日付で決まっていて、
         # いま止めた回とは別の回を指している。
-        if item.repeat.cycle in (Cycle.SINGLE, Cycle.ON_DATE):
+        if item.repeat.cycle in ONE_SHOT:
             item.active = False
+
+    def finish(self, item: WakeItem) -> bool:
+        """鳴り終えたアラームを片付ける。一覧から消したら True。
+
+        止めたとき、自動で止まってスヌーズも残っていないとき、画面を出さずに
+        済ませたときに呼ぶ。ほかと重なって見送った回は鳴らしていないので、
+        ``settle_after_stop`` だけにして、消さずに OFF で残す。
+        """
+        self.settle_after_stop(item)
+        if not item.erases_when_done():
+            return False
+        self.vault.remove(item.uid)
+        return True
 
     # ---- 毎秒の判定 -------------------------------------------------------
     def _on_tick(self, now: dt.datetime | None = None) -> None:

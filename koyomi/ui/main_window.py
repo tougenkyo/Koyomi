@@ -131,6 +131,8 @@ class AlarmRow(QWidget):
             self.pills.addWidget(Pill(planner.skip_label(item), theme.WARN))
         if item.silent_run:
             self.pills.addWidget(Pill(tr("画面なし"), theme.COOL))
+        if item.erases_when_done():
+            self.pills.addWidget(Pill(tr("済んだら削除"), theme.TEXT_SUB))
         if self.window.director.is_snoozing(item.uid):
             state = self.window.director.snooze_state(item.uid)
             self.pills.addWidget(Pill(tr("スヌーズ %d回目") % state.rounds, theme.COOL))
@@ -960,6 +962,7 @@ class MainWindow(QMainWindow):
             self.flash_status(tr("「%s」は別のアラームと重なったのでスヌーズにしました。")
                               % item.display_title())
         else:
+            # 鳴らしていないので、鳴り終わったら削除する指定があっても消さない
             self.director.settle_after_stop(item)
             self.flash_status(tr("「%s」は別のアラームと重なったため見送りました。")
                               % item.display_title())
@@ -972,15 +975,13 @@ class MainWindow(QMainWindow):
         スヌーズも自動停止も起きない。
         """
         note = actions.run_now(item.launch)
-        self.director.settle_after_stop(item)
+        self.director.finish(item)
         headline = tr("「%s」を画面を出さずに実行しました。") % item.display_title()
         message = "%s %s" % (headline, note) if note else headline
         self.flash_status(message)
         if item.notify_silent_run and self.tray.isVisible():
             self.tray.showMessage(APP_TITLE, message,
                                   QSystemTrayIcon.Information, 6000)
-        if item.erase_after_stop:
-            self.vault.remove(item.uid)
         self.after_change()
 
     def _open_ring(self, item: WakeItem, round_no: int, preview: bool = False) -> None:
@@ -1015,15 +1016,13 @@ class MainWindow(QMainWindow):
 
     def _on_ring_stopped(self, item: WakeItem) -> None:
         self._fire_actions(item, at_stop=True)
-        self.director.settle_after_stop(item)
-        if item.erase_after_stop:
-            self.vault.remove(item.uid)
+        self.director.finish(item)
         self.after_change()
 
     def _on_ring_snoozed(self, item: WakeItem, minutes: int) -> None:
         left = self.director.snooze_rounds_left(item)
         if left == 0:
-            self.director.settle_after_stop(item)
+            self.director.finish(item)
             self.flash_status(tr("スヌーズの上限に達したので停止しました。"))
         else:
             state = self.director.begin_snooze(item, dt.datetime.now(), minutes)
@@ -1036,7 +1035,7 @@ class MainWindow(QMainWindow):
             message = tr("「%s」は自動停止し、%s に再通知します。") % (
                 item.display_title(), state.due_at.strftime("%H:%M"))
         else:
-            self.director.settle_after_stop(item)
+            self.director.finish(item)
             message = tr("「%s」は時間が来たので自動停止しました。") % item.display_title()
         if self.vault.prefs.notify_auto_stop:
             self.flash_status(message)

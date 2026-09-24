@@ -18,7 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 
 from koyomi import i18n
-from koyomi.models import Cycle, Guard, GuardPlan, RepeatRule, WakeItem
+from koyomi.models import ONE_SHOT, Cycle, Guard, GuardPlan, RepeatRule, WakeItem
 from koyomi.player import SoundEngine
 from koyomi.tasks import TodoItem, Weight
 from koyomi.ui import theme
@@ -508,6 +508,14 @@ class RepeatPicker(unittest.TestCase):
         self.assertEqual(again.cycle_box.currentText(), "毎日")
         self.assertIs(again.value().cycle, Cycle.EVERY_DAY)
 
+    def test_it_takes_only_the_room_the_chosen_page_needs(self):
+        # いちばん背の高い「曜日を指定」に揃えると、「繰り返さない」の下が大きく空く
+        self.editor.cycle_box.setCurrentIndex(list(Cycle).index(Cycle.WEEKDAYS))
+        tall = self.editor.sizeHint().height()
+        self.editor.cycle_box.setCurrentIndex(list(Cycle).index(Cycle.SINGLE))
+        short = self.editor.sizeHint().height()
+        self.assertLess(short, tall - 100)
+
 
 class SilentRun(unittest.TestCase):
     """画面を出さずに、ついでにやることだけ済ませるアラーム。"""
@@ -788,9 +796,17 @@ class SilenceHidesWhatDoesNotApply(unittest.TestCase):
 
     def test_what_has_nothing_to_do_with_the_screen_stays(self):
         ed = self.editor
+        ed.repeat_editor.cycle_box.setCurrentIndex(list(Cycle).index(Cycle.SINGLE))
         ed.silent_on.setChecked(True)
-        self.assertFalse(ed.erase_box.isHidden())   # 止めたら削除
+        self.assertFalse(ed.erase_box.isHidden())   # 済んだら削除
         self.assertFalse(ed.lock_box.isHidden())    # スイッチの固定
+
+    def test_the_delete_box_speaks_of_running_instead_of_ringing(self):
+        ed = self.editor
+        ed.silent_on.setChecked(True)
+        self.assertEqual(ed.erase_box.text(), "実行したらこのアラームを削除する")
+        ed.silent_on.setChecked(False)
+        self.assertEqual(ed.erase_box.text(), "鳴り終わったらこのアラームを削除する")
 
     def test_the_notice_box_follows_the_main_one(self):
         ed = self.editor
@@ -814,6 +830,110 @@ class SilenceHidesWhatDoesNotApply(unittest.TestCase):
         saved = ed.result_item()
         self.assertTrue(saved.silent_run)
         self.assertFalse(saved.notify_silent_run)
+
+
+class DeleteAfterRinging(unittest.TestCase):
+    """鳴り終わったら削除する指定。止め方によらず、鳴り終えたら一覧から消える。"""
+
+    def setUp(self):
+        i18n.set_language("ja")
+        self.vault = Vault()
+        self.item = WakeItem(hour=9, minute=0, title="歯医者", erase_after_stop=True)
+        self.vault.add(self.item)
+        mock.patch.object(Vault, "save").start()
+        self.addCleanup(mock.patch.stopall)
+        self.win = MainWindow(self.vault, quiet_engine())
+        self.addCleanup(self._shut)
+
+    def _shut(self):
+        self.win._quitting = True
+        self.win.close()
+
+    def listed(self) -> list:
+        return [item.uid for item in self.vault.items]
+
+    def pills(self) -> list:
+        row = self.win.rows[0]
+        return [row.pills.itemAt(i).widget().text()
+                for i in range(row.pills.count())
+                if row.pills.itemAt(i).widget()]
+
+    def test_stopping_it_deletes_it(self):
+        self.win._on_ring_stopped(self.item)
+        self.assertEqual(self.listed(), [])
+        self.assertEqual(self.win.rows, [], "一覧に札が残っている")
+
+    def test_it_is_deleted_when_it_stops_by_itself(self):
+        # 席を外していて自動で止まったときも、鳴り終えたことに変わりはない
+        self.item.snooze.enabled = False
+        self.win._on_ring_auto_stopped(self.item)
+        self.assertEqual(self.listed(), [])
+
+    def test_a_snooze_still_to_come_keeps_it(self):
+        self.win._on_ring_auto_stopped(self.item)      # スヌーズは既定で使う
+        self.assertEqual(self.listed(), [self.item.uid])
+        self.assertTrue(self.win.director.is_snoozing(self.item.uid))
+
+    def test_it_is_deleted_when_the_snoozes_run_out(self):
+        self.item.snooze.max_rounds = 1
+        self.win.director.begin_snooze(self.item, dt.datetime.now())
+        self.win._on_ring_snoozed(self.item, 5)
+        self.assertEqual(self.listed(), [])
+
+    def test_a_ring_let_go_for_another_stays_as_off(self):
+        # 重なって見送った回は鳴っていないので、消さずに OFF で残す
+        self.vault.prefs.overlap_policy = "stop"
+        self.win._handle_overlap(self.item, 0)
+        self.assertEqual(self.listed(), [self.item.uid])
+        self.assertFalse(self.item.active)
+
+    def test_a_repeating_alarm_stays(self):
+        self.item.repeat = RepeatRule(cycle=Cycle.EVERY_DAY)
+        self.win._on_ring_stopped(self.item)
+        self.assertEqual(self.listed(), [self.item.uid])
+        self.assertTrue(self.item.active)
+
+    def test_one_run_without_a_screen_goes_too(self):
+        from koyomi.ui import main_window as mw
+        self.item.silent_run = True
+        with mock.patch.object(mw.actions, "run_now", return_value=""):
+            self.win._on_due(self.item, 0)
+        self.assertEqual(self.listed(), [])
+
+    def test_the_card_says_it_will_go(self):
+        self.assertIn("済んだら削除", self.pills())
+        self.item.repeat = RepeatRule(cycle=Cycle.EVERY_DAY)
+        self.win.reload()
+        self.assertNotIn("済んだら削除", self.pills(), "繰り返すものは消えないのに札が出る")
+
+
+class DeleteBoxInTheEditor(unittest.TestCase):
+    """「鳴り終わったら削除」は、繰り返しを選ぶところに、1 回きりのときだけ出る。"""
+
+    def setUp(self):
+        from koyomi.ui.editor import AlarmEditor
+        i18n.set_language("ja")
+        self.vault = Vault()
+        self.editor = AlarmEditor(WakeItem(erase_after_stop=True), self.vault,
+                                  quiet_engine())
+
+    def pick(self, cycle) -> None:
+        self.editor.repeat_editor.cycle_box.setCurrentIndex(list(Cycle).index(cycle))
+
+    def test_it_sits_on_the_tab_where_the_repeat_is_chosen(self):
+        self.assertTrue(self.editor.tabs.widget(0).isAncestorOf(self.editor.erase_box))
+
+    def test_it_shows_only_for_alarms_that_ring_once(self):
+        for cycle in Cycle:
+            self.pick(cycle)
+            self.assertIs(self.editor.erase_box.isHidden(), cycle not in ONE_SHOT,
+                          cycle.value)
+
+    def test_the_choice_is_written_back(self):
+        self.assertTrue(self.editor.erase_box.isChecked())
+        self.editor.erase_box.setChecked(False)
+        self.editor._commit()
+        self.assertFalse(self.editor.result_item().erase_after_stop)
 
 
 class WindowSizes(unittest.TestCase):

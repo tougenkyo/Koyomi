@@ -10,7 +10,7 @@ import calendar
 import datetime as dt
 import re
 
-from .models import (NTH_WEEKS, WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle,
+from .models import (NTH_WEEKS, ONE_SHOT, WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle,
                      RepeatRule, WakeItem)
 from .i18n import tr
 
@@ -153,7 +153,7 @@ def next_time_for_display(item: WakeItem, almanac=None):
 
 def can_skip(item: WakeItem) -> bool:
     """「次の 1 回だけ飛ばす」を適用できるアラームか。"""
-    return item.active and item.repeat.cycle not in (Cycle.SINGLE, Cycle.ON_DATE)
+    return item.active and item.repeat.cycle not in ONE_SHOT
 
 
 # --------------------------------------------------------------------------

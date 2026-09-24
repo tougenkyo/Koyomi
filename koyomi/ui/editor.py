@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,
 from .. import planner
 from ..actions import (LaunchPlan, check as check_launch, run_now,
                        split_arguments, work_log_path)
-from ..models import (NTH_WEEKS, WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle, Guard,
-                      GuardPlan, SnoozeOrigin, SoundPlan, ToneKind, Toughness,
-                      WakeItem, as_enum)
+from ..models import (NTH_WEEKS, ONE_SHOT, WEEKDAY_LABELS, WEEKDAY_ORDER, Cycle,
+                      Guard, GuardPlan, SnoozeOrigin, SoundPlan, ToneKind,
+                      Toughness, WakeItem, as_enum)
 from ..player import AUDIO_SUFFIXES
 from ..tonesmith import TONE_CATALOG
 from . import guards, theme
@@ -261,6 +261,45 @@ class SoundEditor(QWidget):
 # --------------------------------------------------------------------------
 # 繰り返し条件の編集
 # --------------------------------------------------------------------------
+class FittedStack(QWidget):
+    """頁を重ねて 1 枚だけ見せる。場所は、見せている頁のぶんしか取らない。
+
+    QStackedWidget は、いちばん大きい頁に合わせて場所を取る。繰り返しの欄では
+    「曜日を指定」の頁が大きく、「繰り返さない」を選んでもその下に大きな空きが
+    残っていた。隠した頁は並べるときの勘定に入らないので、1 枚だけ出して並べる。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pages = []
+        self._current = -1
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+    def addWidget(self, page: QWidget) -> int:
+        self.layout().addWidget(page)
+        self._pages.append(page)
+        if self._current < 0:
+            self._current = 0
+        page.setVisible(len(self._pages) - 1 == self._current)
+        return len(self._pages) - 1
+
+    def count(self) -> int:
+        return len(self._pages)
+
+    def currentIndex(self) -> int:
+        return self._current
+
+    def setCurrentIndex(self, index: int) -> None:
+        if not 0 <= index < len(self._pages):
+            return
+        self._current = index
+        for number, page in enumerate(self._pages):
+            page.setVisible(number == index)
+        # 窓を出す前でも、囲んでいる欄が測り直すように
+        self.updateGeometry()
+
+
 class RepeatEditor(QWidget):
     """繰り返し種別と、そのパラメータ。"""
 
@@ -280,7 +319,7 @@ class RepeatEditor(QWidget):
         self.cycle_box.currentIndexChanged.connect(self._sync)
         lay.addWidget(self.cycle_box)
 
-        self.stack = QStackedWidget()
+        self.stack = FittedStack()
         lay.addWidget(self.stack)
 
         # 0: 繰り返さない
@@ -556,6 +595,13 @@ class AlarmEditor(QDialog):
         rl = QVBoxLayout(repeat_box)
         self.repeat_editor = RepeatEditor(self.item, self.vault.almanac)
         rl.addWidget(self.repeat_editor)
+        # 「繰り返さない」を選ぶところで一緒に決められるよう、ここに置く
+        self.erase_box = QCheckBox(tr("鳴り終わったらこのアラームを削除する"))
+        self.erase_box.setChecked(self.item.erase_after_stop)
+        rl.addWidget(self.erase_box)
+        self.repeat_editor.cycle_box.currentIndexChanged.connect(
+            lambda _index: self._sync_erase())
+        self._sync_erase()
         lay.addWidget(repeat_box)
 
         dodge_box = QGroupBox(tr("鳴らさない日"))
@@ -584,6 +630,15 @@ class AlarmEditor(QDialog):
 
         lay.addStretch(1)
         return page
+
+    def _sync_erase(self) -> None:
+        """「鳴り終わったら削除」は、1 回きりの繰り返しを選んだときだけ出す。
+
+        繰り返すアラームは消さないので、出しておいても意味が無い。
+        値は残るので、「繰り返さない」へ戻せば元どおりになる。
+        """
+        cycle = as_enum(Cycle, self.repeat_editor.cycle_box.currentData())
+        self.erase_box.setVisible(cycle in ONE_SHOT)
 
     def _tab_sound(self) -> QWidget:
         page = QWidget()
@@ -635,9 +690,6 @@ class AlarmEditor(QDialog):
         self.autostop_box.setSuffix(tr(" 分（0 で自動停止しない）"))
         self.autostop_box.setValue(self.item.auto_stop_minutes)
         form.addRow(tr("鳴り続ける時間"), self.autostop_box)
-        self.erase_box = QCheckBox(tr("止めたらこのアラームを削除する"))
-        self.erase_box.setChecked(self.item.erase_after_stop)
-        form.addRow(self.erase_box)
         self.stop_form = form
         sl.addLayout(form)
         lay.addWidget(stop_box)
@@ -824,10 +876,13 @@ class AlarmEditor(QDialog):
         """画面を出さない設定のときは、関わりのない欄を引っ込める。
 
         鳴らさないので、音・止め方・スヌーズ・鳴動画面は出番が無い。
-        「止めたら削除」と「スイッチの固定」は画面と関わりが無いので残す。
+        「スイッチの固定」は画面と関わりが無いので残す。「鳴り終わったら削除」も
+        残すが、鳴らないので「実行したら」と言い換える。
         値そのものは残るので、チェックを外せば元どおりになる。
         """
         quiet = self.silent_on.isChecked()
+        self.erase_box.setText(tr("実行したらこのアラームを削除する") if quiet
+                               else tr("鳴り終わったらこのアラームを削除する"))
         self.tabs.setTabVisible(1, not quiet)              # 音
         self.stop_guard_editor.setVisible(not quiet)       # 止め方の操作
         self.stop_form.setRowVisible(self.autostop_box, not quiet)
@@ -926,6 +981,7 @@ class AlarmEditor(QDialog):
         item.title = self.title_field.text().strip()
         item.group = self.group_box.currentData()
         item.repeat = self.repeat_editor.value()
+        item.erase_after_stop = self.erase_box.isChecked()
         item.dodge_holidays = self.holiday_box.isChecked()
         item.dodge_lists = [k for k, b in self.dodge_boxes.items() if b.isChecked()]
         # 時刻と繰り返しを書き戻してから決める。飛ばす回はそれらで変わる
@@ -938,7 +994,6 @@ class AlarmEditor(QDialog):
 
         item.stop_guard = self.stop_guard_editor.value()
         item.auto_stop_minutes = self.autostop_box.value()
-        item.erase_after_stop = self.erase_box.isChecked()
 
         item.snooze.enabled = self.snooze_on.isChecked()
         item.snooze.minutes = self.snooze_minutes.value()
