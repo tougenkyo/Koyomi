@@ -4,6 +4,8 @@
 あとから起動したものは、その窓口へ「出てきて」と一言送って自分は終わる。
 自動起動を入れると、Windows が開いたものと手で開いたものが並びやすく、
 同じアラームが二重に鳴ってしまうため。
+
+更新で開き直すとき、新しい版が古い版へ「立ち上がった」と知らせる窓口もここに置く。
 """
 from __future__ import annotations
 
@@ -63,3 +65,50 @@ class SoloGuard(QObject):
             self._server.close()
             QLocalServer.removeServer(self.name)
             self._server = None
+
+
+# --------------------------------------------------------------------------
+# 更新で開き直すときの受け渡し
+# --------------------------------------------------------------------------
+HANDOVER = "%s-handover-%d"      # 名前と、古い版の pid
+
+
+class Handover(QObject):
+    """古い版が開いて、新しい版から「立ち上がった」と知らせてもらう窓口。
+
+    新しい版は部品を読み込み終えたところで繋いでくる。繋がれば、少なくとも
+    起動でつまずいてはいないので、古い版は終わってよい。先に終わってしまうと、
+    新しい版がつまずいたときにどちらも残らない。
+    """
+
+    arrived = Signal()
+
+    def __init__(self, name: str, pid: int, parent=None):
+        super().__init__(parent)
+        self._server = QLocalServer(self)
+        self._server.newConnection.connect(self._on_visitor)
+        self.listening = self._server.listen(HANDOVER % (name, pid))
+
+    def _on_visitor(self) -> None:
+        connection = self._server.nextPendingConnection()
+        if connection is not None:
+            connection.readAll()
+            connection.disconnectFromServer()
+            connection.deleteLater()
+        self.arrived.emit()
+
+    def close(self) -> None:
+        self._server.close()
+
+
+def tell_ready(name: str, pid: int) -> bool:
+    """古い版の窓口へ、立ち上がったことを知らせる。知らせられたら True。"""
+    probe = QLocalSocket()
+    probe.connectToServer(HANDOVER % (name, pid))
+    if not probe.waitForConnected(1000):
+        return False
+    probe.write(b"ready")
+    probe.flush()
+    probe.waitForBytesWritten(400)
+    probe.disconnectFromServer()
+    return True

@@ -25,7 +25,9 @@ _ES_DISPLAY_REQUIRED = 0x00000002
 
 # CreateWaitableTimer 用
 _TIMER_ALL_ACCESS = 0x1F0003
-_WAKE_TIMER_NAME = "KoyomiWakeTimer"
+# タイマーに名前は付けない。名前があると、テストや 2 つ目の起動など別のプロセスが
+# 同じタイマーを開いてしまい、動いているアプリの起こす時刻をずらしたり消したりする
+_WAKE_TIMER_NAME = None
 
 
 class WakeClock:

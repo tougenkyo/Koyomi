@@ -763,6 +763,11 @@ WORDS = {
     "開き直して反映する": "Reopen to apply",
     "開き直せませんでした。手で起動し直してください。":
         "Could not reopen. Please start it again yourself.",
+    "新しい版を起動しています…": "Starting the new version…",
+    "新しい版を起動できませんでした。いまの版のまま動き続けます。":
+        "The new version could not start. This version keeps running.",
+    "新しい版から返事がありませんでした。いまの版のまま動き続けます。":
+        "The new version did not answer. This version keeps running.",
     "この場所は git の作業コピーではないため、自動では取り込めません。":
         "This copy is not a git working tree, so it cannot update itself.",
     "取り込み元が設定されていません。": "No upstream is set.",
@@ -809,4 +814,21 @@ WORDS = {
     "設定の保存": "Saving settings",
     "音の停止": "Stopping sound",
     "トレイアイコンの削除": "Removing the tray icon",
+    "起動と終了の記録": "Recording the start and the exit",
+    "終了する": "Quit",
+    "終了すると、次に起動するまでアラームは鳴らず、連動動作も動きません。":
+        "After quitting, no alarm rings and no companion action runs "
+        "until the app is started again.",
+    "次の予定: %s  %s": "Next: %s  %s",
+    "終了しますか？": "Quit now?",
+    "前回は途中で止まっていました": "The app stopped unexpectedly last time",
+    "前回は、終了の操作をしないまま止まっていました。":
+        "Last time, the app stopped without being quit.",
+    "強制終了されたか、異常終了したか、電源が切れたと考えられます。":
+        "It was probably ended by force, crashed, or lost power.",
+    "最後に動いていた記録: %s ごろ": "Last seen running: around %s",
+    "異常終了したときの様子を error.log に残しました。":
+        "Details of the crash were saved in error.log.",
+    "止まっていた間に予定されていたもの:": "Scheduled while it was stopped:",
+    "記録: %s": "Log: %s",
 }

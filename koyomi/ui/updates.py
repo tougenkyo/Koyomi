@@ -1,16 +1,19 @@
 """更新の確認と取り込みの画面。"""
 from __future__ import annotations
 
+import os
 import threading
+import time
 import webbrowser
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPlainTextEdit,
                                QPushButton, QVBoxLayout)
 
-from .. import APP_TITLE, APP_VERSION, updater
+from .. import APP_NAME, APP_TITLE, APP_VERSION, updater
 from ..i18n import tr
 from . import theme
+from .solo import Handover
 
 
 class Probe(QObject):
@@ -34,11 +37,19 @@ class UpdateDialog(QDialog):
 
     restart_wanted = Signal()
 
+    # 新しい版が「立ち上がった」と知らせてくるまで待つ長さ（秒）
+    SUCCESSOR_WAIT = 60
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("更新の確認"))
         self.setMinimumWidth(460)
         self._latest = ""
+        self._waiting = False      # 新しい版の知らせを待っているあいだ
+        self._deadline = 0.0
+        self._watch = None
+        self.handover = None
+        self.successor = None      # 起動した新しい版のプロセス
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
@@ -138,12 +149,73 @@ class UpdateDialog(QDialog):
             self.apply_btn.setEnabled(True)
 
     def _restart(self) -> None:
-        if updater.relaunch():
+        """新しい版を起動し、立ち上がったと知らせが来てから、こちらを終わらせる。
+
+        先に終わると、新しい版が起動でつまずいたとき、どちらも残らない。
+        知らせが来ないうちに新しい版が消えたら、こちらはそのまま動き続ける。
+        """
+        self.restart_btn.setEnabled(False)
+        self.handover = Handover(APP_NAME, os.getpid(), self)
+        self.handover.arrived.connect(self._on_successor)
+        self.successor = updater.relaunch(after=os.getpid())
+        if self.successor is None:
+            self._give_up(tr("開き直せませんでした。手で起動し直してください。"))
+            return
+        if not self.handover.listening:
+            # 知らせを受け取れない。新しい版はこちらが終わるのを待ってくれるので、
+            # 前と同じように、すぐに終わる
+            self.handover.close()
             self.accept()
             self.restart_wanted.emit()
-        else:
-            self.headline.setText(tr("開き直せませんでした。"
-                                     "手で起動し直してください。"))
+            return
+        self._waiting = True
+        self.headline.setText(tr("新しい版を起動しています…"))
+        self._deadline = time.monotonic() + self.SUCCESSOR_WAIT
+        self._watch = QTimer(self)
+        self._watch.setInterval(250)
+        self._watch.timeout.connect(self._check_successor)
+        self._watch.start()
+
+    def _on_successor(self) -> None:
+        """新しい版が立ち上がった。こちらは終わってよい。"""
+        if not self._waiting:
+            return
+        self._stop_waiting()
+        self.accept()
+        self.restart_wanted.emit()
+
+    def _check_successor(self) -> None:
+        if not self._waiting:
+            return
+        if self.successor.poll() is not None:
+            self._give_up(tr("新しい版を起動できませんでした。"
+                             "いまの版のまま動き続けます。"))
+        elif time.monotonic() >= self._deadline:
+            try:
+                self.successor.kill()
+            except OSError:
+                pass
+            self._give_up(tr("新しい版から返事がありませんでした。"
+                             "いまの版のまま動き続けます。"))
+
+    def _give_up(self, message: str) -> None:
+        self._stop_waiting()
+        self.headline.setText(message)
+        self.restart_btn.setEnabled(True)
+
+    def _stop_waiting(self) -> None:
+        self._waiting = False
+        if self._watch is not None:
+            self._watch.stop()
+        if self.handover is not None:
+            self.handover.close()
+
+    def reject(self) -> None:
+        # 新しい版の知らせを待つあいだは閉じさせない。閉じても受け渡しは続くので、
+        # 閉じたつもりで終わってしまい、驚かせることになる
+        if self._waiting:
+            return
+        super().reject()
 
 
 def quiet_check(window) -> None:

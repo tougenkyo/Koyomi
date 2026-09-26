@@ -1,8 +1,11 @@
-"""自動起動の登録と、新しい版の見つけ方を確かめる。"""
+"""自動起動の登録と、新しい版の見つけ方・開き直し方を確かめる。"""
 import _home
 _home.guard()   # 本物の %APPDATA% を触らせない。koyomi を読み込む前に済ませる
 
 import json
+import subprocess
+import sys
+import time
 import unittest
 from unittest import mock
 
@@ -128,6 +131,49 @@ class Autostart(unittest.TestCase):
     def test_unregistering_something_absent_is_quiet(self):
         with mock.patch.object(autostart, "VALUE_NAME", "KoyomiNotThere"):
             self.assertEqual(autostart.disable(), "")
+
+
+class Relaunch(unittest.TestCase):
+    """更新して開き直すとき、新しい版に前の版が終わるのを待たせる。"""
+
+    def test_the_new_version_is_told_whom_to_wait_for(self):
+        with mock.patch.object(updater.subprocess, "Popen") as popen:
+            child = updater.relaunch(after=4321)
+        self.assertIn("--after-update=4321", popen.call_args[0][0])
+        self.assertIs(child, popen.return_value)
+
+    def test_a_launch_that_cannot_start_returns_nothing(self):
+        with mock.patch.object(updater.subprocess, "Popen", side_effect=OSError("x")):
+            self.assertIsNone(updater.relaunch(after=1))
+
+    def test_the_old_version_is_read_back_from_the_arguments(self):
+        self.assertEqual(updater.predecessor(["run.pyw", "--after-update=77"]), 77)
+        self.assertEqual(
+            updater.predecessor(["run.pyw", "--minimized", "--after-update=5"]), 5)
+        self.assertIsNone(updater.predecessor(["run.pyw"]))
+        self.assertIsNone(updater.predecessor(["run.pyw", "--after-update=x"]))
+        # トレイへ畳む指示と取り違えない
+        self.assertFalse(autostart.wants_tray(["run.pyw", "--after-update=77"]))
+
+    def test_waiting_ends_as_soon_as_the_process_ends(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.5)"])
+        started = time.monotonic()
+        self.assertTrue(updater.wait_for_exit(child.pid, 20))
+        self.assertLess(time.monotonic() - started, 10)
+        child.wait()
+
+    def test_waiting_gives_up_at_the_limit(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            self.assertFalse(updater.wait_for_exit(child.pid, 0.3))
+        finally:
+            child.kill()
+            child.wait()
+
+    def test_a_process_that_is_gone_needs_no_waiting(self):
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        child.wait()
+        self.assertTrue(updater.wait_for_exit(child.pid, 5))
 
 
 if __name__ == "__main__":

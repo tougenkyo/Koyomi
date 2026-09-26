@@ -8,6 +8,9 @@
 このアプリは git の作業コピーとして配られる前提で、
 早送りできるときだけ更新する。手元の変更を巻き込まないための制限。
 zip で落としただけの場合は git が使えないので、配布ページを開く案内に留める。
+
+開き直すときは、新しい版が立ち上がったと知らせてくるのを待ってから古い版を
+終わらせ、新しい版は古い版が終わるのを待ってから本物になる（ui/solo.py）。
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -166,14 +170,64 @@ def pull() -> tuple:
     return _git("pull", "--ff-only")
 
 
-def relaunch() -> bool:
-    """新しい版で開き直す。呼んだ側はこのあと自分を終わらせる。"""
+# --------------------------------------------------------------------------
+# 開き直す
+# --------------------------------------------------------------------------
+# 新しい版へ「このプロセスが終わるのを待ってから始めて」と伝える印
+AFTER_FLAG = "--after-update="
+_SYNCHRONIZE = 0x00100000
+
+
+def relaunch(after: int | None = None):
+    """新しい版を起動する。起動できたらそのプロセスを、できなければ None を返す。
+
+    ``after`` にいまの pid を渡すと、新しい版はこのプロセスが終わるのを待ってから
+    二重起動の見張りを通る。待たずに通ろうとすると、まだ動いているこちらを見て
+    「すでに動いている」と引き下がり、どちらも残らないことがあった。
+    """
     from .autostart import _launcher, entry_script
     command = [_launcher()]
     if not getattr(sys, "frozen", False):
         command.append(entry_script())
+    if after:
+        command.append("%s%d" % (AFTER_FLAG, after))
     try:
-        subprocess.Popen(command, cwd=project_root(), shell=False)
-        return True
+        return subprocess.Popen(command, cwd=project_root(), shell=False)
     except OSError:
-        return False
+        return None
+
+
+def predecessor(argv=None):
+    """更新で開き直されたときの、前の版の pid。そうでなければ None。"""
+    for arg in (sys.argv if argv is None else argv)[1:]:
+        if arg.startswith(AFTER_FLAG) and arg[len(AFTER_FLAG):].isdigit():
+            return int(arg[len(AFTER_FLAG):])
+    return None
+
+
+def wait_for_exit(pid: int, seconds: float) -> bool:
+    """``pid`` のプロセスが終わるのを待つ。終わった（もう居ない）なら True。"""
+    if not sys.platform.startswith("win"):     # pragma: no cover - Windows 以外
+        deadline = time.monotonic() + seconds
+        while True:
+            try:
+                os.kill(pid, 0)                # Windows 以外では、居るか確かめるだけ
+            except OSError:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.2)
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+    kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    handle = kernel32.OpenProcess(_SYNCHRONIZE, False, pid)
+    if not handle:
+        return True                            # もう居ない
+    try:
+        return kernel32.WaitForSingleObject(handle, int(seconds * 1000)) == 0
+    finally:
+        kernel32.CloseHandle(handle)

@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QHBoxLayout,
 
 from .. import APP_TITLE, actions, autostart, i18n, planner, power
 from ..director import RingDirector
+from ..logbook import (BY_CLOSE, BY_MENU, BY_TRAY, BY_UPDATE, BY_WINDOWS,
+                       HISTORY)
 from ..models import (QUICK_ACTIONS, WEEKDAY_LABELS, Cycle, ListOrder,
                       WakeItem, as_enum)
 from ..player import SoundEngine
@@ -192,10 +194,12 @@ class AlarmRow(QWidget):
 class MainWindow(QMainWindow):
     """アラーム一覧を出す親ウィンドウ。"""
 
-    def __init__(self, vault, engine: SoundEngine):
+    def __init__(self, vault, engine: SoundEngine, logbook=None):
         super().__init__()
         self.vault = vault
         self.engine = engine
+        self.logbook = logbook       # 起動と終了の控え。テストなどでは無い
+        self._exit_how = ""          # どの操作で終わるか。控えに残す
         self.rows = []
         self.ring_windows = {}
         self.timer_window = None
@@ -225,9 +229,11 @@ class MainWindow(QMainWindow):
         # 過ぎた「次は飛ばす」を下ろしてしまい、飛ばした回を取りこぼしと数える
         missed = self.director.sweep_missed()
         self.director.start()
+        # 前回が終了の操作を通らずに消えていたら、その様子（起動の控えが調べてある）
+        vanished = self.logbook.previous if self.logbook is not None else None
         if self.vault.prefs.float_bar:
             QTimer.singleShot(200, self.show_float_bar)
-        QTimer.singleShot(400, lambda: self._report_missed(missed))
+        QTimer.singleShot(400, lambda: self._report_missed(missed, vanished))
         QTimer.singleShot(600, self._review_pending_actions)
         QTimer.singleShot(900, self._check_autostart_health)
         if self.vault.prefs.check_updates:
@@ -356,7 +362,7 @@ class MainWindow(QMainWindow):
         menu.addAction(off)
         menu.addSeparator()
         quit_action = QAction(tr("終了"), self)
-        quit_action.triggered.connect(self.quit_app)
+        quit_action.triggered.connect(lambda: self.ask_quit(BY_TRAY))
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(
@@ -542,6 +548,8 @@ class MainWindow(QMainWindow):
         for row in self.rows:
             row.refresh_countdown()
         self._maybe_auto_sleep()
+        if self.logbook is not None:
+            self.logbook.beat()          # 書くのは 1 分に 1 回
 
     def _on_skip_over(self, items: list) -> None:
         """飛ばす回を過ぎた。札を外し、下ろしたことを保存する。
@@ -770,6 +778,9 @@ class MainWindow(QMainWindow):
         self.after_change()
 
     def _more_menu(self) -> None:
+        self._build_more_menu().exec(self.cursor().pos())
+
+    def _build_more_menu(self) -> QMenu:
         menu = QMenu(self)
         menu.addAction(tr("すべて ON"), lambda: self.set_all(True))
         menu.addAction(tr("すべて OFF"), lambda: self.set_all(False))
@@ -793,8 +804,8 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("設定…"), self.open_settings)
         menu.addAction(tr("このアプリについて"), self.show_about)
         menu.addSeparator()
-        menu.addAction(tr("終了"), self.quit_app)
-        menu.exec(self.cursor().pos())
+        menu.addAction(tr("終了"), lambda: self.ask_quit(BY_MENU))
+        return menu
 
     def open_date_lists(self) -> None:
         dialog = DateListDialog(self.vault.almanac, self)
@@ -903,7 +914,7 @@ class MainWindow(QMainWindow):
 
     def open_updates(self) -> None:
         dialog = UpdateDialog(self)
-        dialog.restart_wanted.connect(self.quit_app)
+        dialog.restart_wanted.connect(lambda: self.quit_app(BY_UPDATE))
         dialog.exec()
 
     def summon(self) -> None:
@@ -1044,7 +1055,11 @@ class MainWindow(QMainWindow):
                                       QSystemTrayIcon.Information, 6000)
         self.after_change()
 
-    def _report_missed(self, found: list) -> None:
+    def _report_missed(self, found: list, vanished=None) -> None:
+        if vanished:
+            # 前回は終了の操作をせずに止まっていた。止まっていた間の分をまとめて伝える
+            self._report_vanished(vanished)
+            return
         if not found:
             return
         lines = [tr("アプリが動いていない間に、次のアラームの時刻が過ぎていました。"), ""]
@@ -1054,6 +1069,48 @@ class MainWindow(QMainWindow):
         if len(found) > 8:
             lines.append(tr("ほか %d件") % (len(found) - 8))
         QMessageBox.warning(self, tr("鳴らせなかったアラーム"), "\n".join(lines))
+
+    def _report_vanished(self, previous: dict) -> None:
+        """前回が終了の操作をせずに止まっていたことと、その間の予定を伝える。
+
+        ふつうの取りこぼしの知らせは起動前の一定時間だけを見るので、長く止まって
+        いたときは一部しか出ない。ここでは止まっていた間をすべて数える。
+        """
+        since = previous.get("alive") or previous.get("started")
+        lines = [tr("前回は、終了の操作をしないまま止まっていました。"),
+                 tr("強制終了されたか、異常終了したか、電源が切れたと考えられます。"), ""]
+        if since is not None:
+            lines.append(tr("最後に動いていた記録: %s ごろ") % since.strftime("%m/%d %H:%M"))
+        if previous.get("crashed"):
+            lines.append(tr("異常終了したときの様子を error.log に残しました。"))
+        missed = self._due_between(since, dt.datetime.now()) if since is not None else []
+        if missed:
+            lines += ["", tr("止まっていた間に予定されていたもの:")]
+            for when, item in missed[:8]:
+                lines.append("・%s  %s" % (when.strftime("%m/%d %H:%M"),
+                                           item.display_title()))
+            if len(missed) > 8:
+                lines.append(tr("ほか %d件") % (len(missed) - 8))
+        lines += ["", tr("記録: %s") % self.logbook.path(HISTORY)]
+        QMessageBox.warning(self, tr("前回は途中で止まっていました"), "\n".join(lines))
+
+    def _due_between(self, start, end) -> list:
+        """start から end までに鳴るはずだった (日時, アラーム) を、早い順に。"""
+        found = []
+        for item in self.vault.items:
+            if not item.active:
+                continue
+            skip = planner.skip_day(item)
+            try:
+                fired = dt.datetime.fromisoformat(item.last_fired_at)
+            except ValueError:
+                fired = None
+            for hit in planner.times_in_range(item, self.vault.almanac, start, end):
+                # 止まる直前に鳴らし終えていた回は数えない
+                if hit.date() != skip and (fired is None or hit > fired):
+                    found.append((hit, item))
+        found.sort(key=lambda pair: pair[0])
+        return found
 
     # ------------------------------------------------------------------
     # 終了まわり
@@ -1087,6 +1144,8 @@ class MainWindow(QMainWindow):
             (tr("設定の保存"), self.vault.save),
             (tr("音の停止"), self.engine.shutdown),
             (tr("トレイアイコンの削除"), self._drop_tray),
+            # 次の起動が「前回の消え残り」と取り違えないよう、窓口より先に片付ける
+            (tr("起動と終了の記録"), self._close_logbook),
             (tr("窓口を閉じる"), self._release_guard),
         )
         for label, action in steps:
@@ -1111,6 +1170,10 @@ class MainWindow(QMainWindow):
         if guard is not None:
             guard.release()
 
+    def _close_logbook(self) -> None:
+        if self.logbook is not None:
+            self.logbook.close(self._exit_how)
+
     def _close_extras(self) -> None:
         for attr in ("float_bar", "world_window", "todo_window"):
             window = getattr(self, attr, None)
@@ -1123,7 +1186,40 @@ class MainWindow(QMainWindow):
         self.tray.setVisible(False)
         self.tray.deleteLater()
 
-    def quit_app(self) -> None:
+    def ask_quit(self, how: str) -> None:
+        """メニューの「終了」。アラームが止まることを確かめてから終わる。"""
+        if self._confirm_quit():
+            self.quit_app(how)
+
+    def _confirm_quit(self) -> bool:
+        box, leave = self._quit_box()
+        box.exec()
+        return box.clickedButton() is leave
+
+    def _quit_box(self) -> tuple:
+        """終了の確かめ。押し間違いで止めないよう、既定は「やめる」にする。"""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(tr("終了"))
+        box.setText(tr("終了すると、次に起動するまでアラームは鳴らず、"
+                       "連動動作も動きません。"))
+        lines = []
+        soonest, owner = self.next_ring()
+        if soonest is not None:
+            lines.append(tr("次の予定: %s  %s") % (soonest.strftime("%m/%d %H:%M"),
+                                                 owner.display_title()))
+        lines.append(tr("終了しますか？"))
+        box.setInformativeText("\n\n".join(lines))
+        leave = box.addButton(tr("終了する"), QMessageBox.AcceptRole)
+        stay = box.addButton(tr("やめる"), QMessageBox.RejectRole)
+        box.setDefaultButton(stay)
+        box.setEscapeButton(stay)
+        # トレイから選んだときは本体の窓が隠れているので、前に出す
+        box.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        return box, leave
+
+    def quit_app(self, how: str = "") -> None:
+        self._exit_how = how or self._exit_how
         self._quitting = True
         self._teardown()
         self.close()
@@ -1131,6 +1227,19 @@ class MainWindow(QMainWindow):
         # モーダルダイアログの入れ子ループなどが残っていても確実に終わらせる。
         # 後片付けは上で済ませてあるので、ここで落としても失うものはない。
         QTimer.singleShot(1500, lambda: os._exit(0))
+
+    def on_app_quitting(self) -> None:
+        """アプリが終わろうとしている。Windows の終了でもここを通る。
+
+        メニューの「終了」なら後片付けは済んでいる。Windows の終了
+        （シャットダウン・再起動・サインアウト）はここにしか来ず、このあとすぐに
+        止められるので、保存と記録をこの場で済ませる。
+        """
+        if self._torn_down:
+            return
+        self._exit_how = self._exit_how or BY_WINDOWS
+        self._quitting = True
+        self._teardown()
 
     def closeEvent(self, event):
         if not self._quitting and self.tray.isVisible():
@@ -1148,6 +1257,7 @@ class MainWindow(QMainWindow):
             except Exception:          # noqa: BLE001 - 保存できなくても畳むのは止めない
                 pass
             return
+        self._exit_how = self._exit_how or BY_CLOSE
         self._teardown()
         super().closeEvent(event)
         QApplication.instance().quit()

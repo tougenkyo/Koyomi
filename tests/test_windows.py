@@ -9,7 +9,10 @@ import _home
 _home.guard()   # 本物の %APPDATA% を触らせない。koyomi を読み込む前に済ませる
 
 import datetime as dt
+import faulthandler
 import os
+import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -17,7 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from koyomi import i18n
+from koyomi import APP_NAME, i18n, logbook, updater
 from koyomi.models import ONE_SHOT, Cycle, Guard, GuardPlan, RepeatRule, WakeItem
 from koyomi.player import SoundEngine
 from koyomi.tasks import TodoItem, Weight
@@ -936,6 +939,230 @@ class DeleteBoxInTheEditor(unittest.TestCase):
         self.assertFalse(self.editor.result_item().erase_after_stop)
 
 
+class QuitAndRecord(unittest.TestCase):
+    """「終了」の確かめと、どう終わったかの控え。"""
+
+    def setUp(self):
+        i18n.set_language("ja")
+        room = tempfile.TemporaryDirectory()
+        self.addCleanup(room.cleanup)
+        self.folder = room.name
+        self.book = logbook.Logbook(self.folder)
+        self.book.open(logbook.BY_HAND, "0.9.test")
+        self.addCleanup(self._let_go)
+        self.vault = sample_vault()
+        mock.patch.object(Vault, "save").start()
+        self.addCleanup(mock.patch.stopall)
+        self.win = MainWindow(self.vault, quiet_engine(), self.book)
+        self.addCleanup(self._shut)
+
+    def _shut(self):
+        self.win._quitting = True
+        self.win.close()
+
+    def _let_go(self):
+        # 落ちたときの書き込み先を開いたままだと、一時フォルダを消せない
+        if self.book._crash is not None:
+            faulthandler.disable()
+            self.book._crash.close()
+            self.book._crash = None
+
+    def history(self) -> list:
+        with open(os.path.join(self.folder, logbook.HISTORY), encoding="utf-8") as fh:
+            return fh.read().splitlines()
+
+    @staticmethod
+    def action(menu, text):
+        return next(a for a in menu.actions() if a.text() == text)
+
+    def check_it_asks(self, item, how):
+        with mock.patch.object(MainWindow, "quit_app") as quit, \
+             mock.patch.object(MainWindow, "_confirm_quit", return_value=False):
+            item.trigger()
+        quit.assert_not_called()
+        with mock.patch.object(MainWindow, "quit_app") as quit, \
+             mock.patch.object(MainWindow, "_confirm_quit", return_value=True):
+            item.trigger()
+        quit.assert_called_once_with(how)
+
+    def test_the_tray_quit_asks_first(self):
+        self.check_it_asks(self.action(self.win.tray.contextMenu(), "終了"),
+                           logbook.BY_TRAY)
+
+    def test_the_menu_button_quit_asks_too(self):
+        self.check_it_asks(self.action(self.win._build_more_menu(), "終了"),
+                           logbook.BY_MENU)
+
+    def test_the_question_names_the_next_alarm_and_leans_to_staying(self):
+        box, leave = self.win._quit_box()
+        self.addCleanup(box.deleteLater)
+        self.assertIn("アラームは鳴らず", box.text())
+        self.assertIn("起床", box.informativeText())      # 次に鳴るのは「起床」
+        self.assertEqual(leave.text(), "終了する")
+        # Enter や Esc で、うっかり終わらないように
+        self.assertEqual(box.defaultButton().text(), "やめる")
+        self.assertEqual(box.escapeButton().text(), "やめる")
+
+    def test_only_the_quit_button_quits(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        def press(label):
+            def fake_exec(box):
+                next(b for b in box.buttons() if b.text() == label).click()
+                return 0
+            return fake_exec
+
+        with mock.patch.object(QMessageBox, "exec", press("やめる")):
+            self.assertFalse(self.win._confirm_quit())
+        with mock.patch.object(QMessageBox, "exec", press("終了する")):
+            self.assertTrue(self.win._confirm_quit())
+
+    def test_the_way_it_ended_is_written_down(self):
+        self.win._exit_how = logbook.BY_TRAY
+        self.win._teardown()
+        self.assertIn("終了", self.history()[-1])
+        self.assertIn("トレイのメニューから終了", self.history()[-1])
+        self.assertFalse(os.path.exists(os.path.join(self.folder, logbook.RUNNING)))
+
+    def test_windows_shutting_down_is_saved_and_written_down(self):
+        Vault.save.reset_mock()
+        self.win.on_app_quitting()
+        self.assertTrue(Vault.save.called, "Windows の終了で保存していない")
+        self.assertIn("Windows の終了", self.history()[-1])
+        self.win.on_app_quitting()                 # 何度来ても 1 回だけ
+        self.assertEqual(sum("終了" in line for line in self.history()), 1)
+
+    def test_the_clock_keeps_the_mark_fresh(self):
+        with mock.patch.object(self.book, "beat") as beat:
+            self.win._on_tick()
+        beat.assert_called_once_with()
+
+    def vanished(self, hours: float, fired_hours_ago=None):
+        """hours 時間前から止まっていたことにして、起動時の知らせを出す。
+
+        30 分前に毎日鳴るアラームを置く。fired_hours_ago を渡すと、その時刻に
+        鳴らし終えていたことにする。
+        """
+        from koyomi.ui import main_window as mw
+        now = dt.datetime.now()
+        at = (now - dt.timedelta(minutes=30)).time()
+        fired = ""
+        if fired_hours_ago is not None:
+            fired = (now - dt.timedelta(hours=fired_hours_ago)).isoformat(timespec="seconds")
+        job = WakeItem(hour=at.hour, minute=at.minute, second=at.second,
+                       title="DMM取得", repeat=RepeatRule(cycle=Cycle.EVERY_DAY),
+                       last_fired_at=fired)
+        self.vault.add(job)
+        previous = {"pid": 1234, "version": "0.9.test",
+                    "started": now - dt.timedelta(days=3),
+                    "alive": now - dt.timedelta(hours=hours), "crashed": False}
+        with mock.patch.object(mw.QMessageBox, "warning") as warned:
+            self.win._report_missed([], previous)
+        return warned
+
+    def test_a_run_that_vanished_is_told_with_all_it_missed(self):
+        warned = self.vanished(hours=36)
+        title, text = warned.call_args[0][1], warned.call_args[0][2]
+        self.assertEqual(title, "前回は途中で止まっていました")
+        self.assertIn("終了の操作をしないまま", text)
+        self.assertIn("最後に動いていた記録", text)
+        # ふつうの取りこぼしの知らせと違い、起動前の 60 分に限らない
+        self.assertEqual(text.count("DMM取得"), 2, text)
+        self.assertIn(logbook.HISTORY, text)
+
+    def test_a_ring_done_before_it_vanished_is_not_counted(self):
+        # 24 時間 30 分前の回は鳴らし終えていた。残るのは 30 分前の回だけ
+        warned = self.vanished(hours=36, fired_hours_ago=24)
+        self.assertEqual(warned.call_args[0][2].count("DMM取得"), 1)
+
+    def test_without_a_vanished_run_the_usual_report_stays(self):
+        from koyomi.ui import main_window as mw
+        with mock.patch.object(mw.QMessageBox, "warning") as warned:
+            self.win._report_missed([], None)
+        warned.assert_not_called()
+
+    def test_the_window_hears_about_the_last_run_from_the_logbook(self):
+        story = {"pid": 1234, "version": "0.9.test", "started": None,
+                 "alive": dt.datetime.now() - dt.timedelta(hours=2), "crashed": True}
+        self.book.previous = story
+        # ほかのテストで作った窓の知らせも、ここで一緒に届くことがある
+        with mock.patch.object(MainWindow, "_report_missed") as report:
+            win = MainWindow(self.vault, quiet_engine(), self.book)
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and not any(
+                    call[0][1] is story for call in report.call_args_list):
+                _app.processEvents()
+                time.sleep(0.02)
+        win._quitting = True
+        win.close()
+        self.assertIn(story, [call[0][1] for call in report.call_args_list])
+
+
+class RestartAfterUpdate(unittest.TestCase):
+    """更新して開き直すとき、新しい版が立ち上がるまで古い版は終わらない。"""
+
+    def setUp(self):
+        from koyomi.ui import updates
+        i18n.set_language("ja")
+        mock.patch.object(updates.Probe, "start").start()      # 調べに行かない
+        self.addCleanup(mock.patch.stopall)
+        self.dialog = updates.UpdateDialog()
+        self.addCleanup(self._close)
+        self.wanted = []
+        self.dialog.restart_wanted.connect(lambda: self.wanted.append(True))
+
+    def _close(self):
+        self.dialog._stop_waiting()
+        self.dialog.deleteLater()
+
+    def start(self, code=None):
+        child = mock.Mock()
+        child.poll.return_value = code
+        with mock.patch.object(updater, "relaunch", return_value=child) as launched:
+            self.dialog._restart()
+        return child, launched
+
+    def test_the_new_version_is_told_whom_to_wait_for(self):
+        _child, launched = self.start()
+        self.assertEqual(launched.call_args.kwargs, {"after": os.getpid()})
+
+    def test_this_version_waits_for_word_from_the_new_one(self):
+        from koyomi.ui.solo import tell_ready
+        self.start()
+        self.assertEqual(self.wanted, [], "知らせを待たずに終わろうとした")
+        self.dialog.reject()                      # 待っているあいだは閉じない
+        self.assertTrue(self.dialog._waiting)
+        # 新しい版と同じ知らせ方で届くこと
+        self.assertTrue(tell_ready(APP_NAME, os.getpid()))
+        for _ in range(50):
+            _app.processEvents()
+            if self.wanted:
+                break
+            time.sleep(0.02)
+        self.assertEqual(self.wanted, [True])
+
+    def test_a_new_version_that_falls_over_leaves_this_one_running(self):
+        self.start(code=1)
+        self.dialog._check_successor()
+        self.assertEqual(self.wanted, [])
+        self.assertIn("起動できませんでした", self.dialog.headline.text())
+        self.assertTrue(self.dialog.restart_btn.isEnabled())
+
+    def test_silence_until_the_limit_leaves_this_one_running(self):
+        child, _ = self.start()
+        self.dialog._deadline = 0                 # 待ち時間を使い切ったことにする
+        self.dialog._check_successor()
+        child.kill.assert_called_once_with()
+        self.assertEqual(self.wanted, [])
+        self.assertIn("返事がありませんでした", self.dialog.headline.text())
+
+    def test_a_launch_that_cannot_start_says_so(self):
+        with mock.patch.object(updater, "relaunch", return_value=None):
+            self.dialog._restart()
+        self.assertEqual(self.wanted, [])
+        self.assertIn("開き直せませんでした", self.dialog.headline.text())
+
+
 class WindowSizes(unittest.TestCase):
     """窓の大きさを覚えて、次に開いたときに戻すこと。"""
 
@@ -1125,7 +1352,6 @@ class SingleInstance(unittest.TestCase):
     NAME = "KoyomiSoloTest"
 
     def test_the_second_one_is_turned_away(self):
-        import time
         from koyomi.ui.solo import SoloGuard
         first = SoloGuard(self.NAME)
         self.assertTrue(first.claim())
@@ -1151,6 +1377,28 @@ class SingleInstance(unittest.TestCase):
         second = SoloGuard(self.NAME)
         self.assertTrue(second.claim())
         second.release()
+
+    def test_a_new_version_can_tell_the_old_one_it_is_up(self):
+        # 更新で開き直すとき、新しい版は古い版の pid の名前で知らせてくる
+        from koyomi.ui.solo import Handover, tell_ready
+        door = Handover(self.NAME, 424242)
+        heard = []
+        door.arrived.connect(lambda: heard.append(1))
+        try:
+            self.assertTrue(door.listening)
+            self.assertTrue(tell_ready(self.NAME, 424242))
+            for _ in range(30):
+                _app.processEvents()
+                if heard:
+                    break
+                time.sleep(0.02)
+            self.assertTrue(heard, "古い版に知らせが届かなかった")
+        finally:
+            door.close()
+
+    def test_telling_nobody_is_quiet(self):
+        from koyomi.ui.solo import tell_ready
+        self.assertFalse(tell_ready(self.NAME, 424243))
 
 
 class Appearance(unittest.TestCase):
