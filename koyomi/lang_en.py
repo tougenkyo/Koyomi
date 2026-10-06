@@ -619,6 +619,24 @@ WORDS = {
     "オークランド": "Auckland",
     "協定世界時 (UTC)": "Coordinated Universal Time (UTC)",
 
+    # ---- カレンダー --------------------------------------------------------
+    "カレンダー": "Calendar",
+    "カレンダー…": "Calendar…",
+    "jpholiday が入っていないため、祝日を表示できません。":
+        "Holidays cannot be shown because the jpholiday package is not installed.",
+    "日曜・祝日": "Sundays & holidays",
+    "土曜": "Saturdays",
+    "今日へ": "Today",
+    "この日のアラーム": "Alarms on this day",
+    "%d年%d月の祝日": "Holidays in %d/%d",
+    "この月に祝日はありません": "No public holidays this month",
+    "日付リスト: %s": "Date lists: %s",
+    "過ぎた日の予定は出しません": "Past days are not listed",
+    "鳴る予定のアラームはありません": "No alarms on this day",
+    "祝日なので鳴らさない": "off: public holiday",
+    "登録日なので鳴らさない": "off: date on a list",
+    "この回は飛ばす": "skipped this time",
+
     # ---- やることリスト ----------------------------------------------------
     "やることリスト": "To-do list",
     "やることリスト…": "To-do list…",

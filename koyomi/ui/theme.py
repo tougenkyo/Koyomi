@@ -202,6 +202,8 @@ QCalendarWidget QWidget { background: %(SLATE)s; }
 QCalendarWidget QAbstractItemView:enabled {
     background: %(SLATE)s; color: %(TEXT)s; selection-background-color: %(ACCENT_DIM)s;
 }
+/* 前後の月からはみ出して見える日は、Qt がこの色で描く */
+QCalendarWidget QAbstractItemView:disabled { color: %(TEXT_SUB)s; }
 QCalendarWidget QToolButton { background: transparent; color: %(TEXT)s; }
 QCalendarWidget QToolButton::menu-indicator { image: none; }
 """

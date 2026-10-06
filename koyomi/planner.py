@@ -232,6 +232,33 @@ def _rings_on(item: WakeItem, day: dt.date, almanac=None) -> bool:
         day, item.dodge_holidays, item.dodge_lists)
 
 
+def day_plan(item: WakeItem, day: dt.date, almanac=None,
+             now: dt.datetime | None = None):
+    """カレンダーに出す、``day`` のこのアラームの扱い。
+
+    鳴る予定なら (日時, "")、本来は鳴る日だが止めてあるなら (日時, わけ)、
+    その日に関わりが無ければ None。OFF のものと、過ぎた日は扱わない。
+    """
+    now = now or dt.datetime.now()
+    if not item.active or day < now.date():
+        return None
+    if item.repeat.cycle == Cycle.SINGLE:
+        # 「1回だけ」はどの日にも当てはまるので、次に鳴る 1 回だけを出す
+        hit = next_time(item, almanac, now)
+        return (hit, "") if hit is not None and hit.date() == day else None
+    if not day_matches(item.repeat, day, almanac):
+        return None
+    moment = dt.datetime.combine(day, item.time_of_day())
+    if almanac is not None:
+        if item.dodge_holidays and almanac.is_holiday(day):
+            return moment, tr("祝日なので鳴らさない")
+        if almanac.is_blocked(day, False, item.dodge_lists):
+            return moment, tr("登録日なので鳴らさない")
+    if day == skip_day(item, almanac, now):
+        return moment, tr("この回は飛ばす")
+    return moment, ""
+
+
 def carry_skip(item: WakeItem, wanted: bool, was_due_at, almanac=None,
                now: dt.datetime | None = None) -> None:
     """編集して保存するときの「次の 1 回だけ飛ばす」。

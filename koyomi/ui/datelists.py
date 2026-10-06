@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QCalendarWidget, QComboBox, QDialog, QGroupBox,
 
 from ..models import WEEKDAY_LABELS, WEEKDAY_ORDER
 from . import theme
-from .widgets import sunday_first
+from .widgets import month_arrows, sunday_first
 from ..i18n import tr
 
 
@@ -56,6 +56,7 @@ class DateListDialog(QDialog):
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
         sunday_first(self.calendar)
+        month_arrows(self.calendar)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.calendar.clicked.connect(self._toggle_day)
         self.calendar.currentPageChanged.connect(lambda *_: self._paint())

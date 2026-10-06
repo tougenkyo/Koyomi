@@ -1163,6 +1163,140 @@ class RestartAfterUpdate(unittest.TestCase):
         self.assertIn("開き直せませんでした", self.dialog.headline.text())
 
 
+class CalendarView(unittest.TestCase):
+    """トレイから開くカレンダー。祝日に色が付き、選んだ日の予定が出ること。"""
+
+    def setUp(self):
+        from koyomi.ui.monthview import CalendarWindow
+        i18n.set_language("ja")
+        self.vault = sample_vault()
+        self.window = CalendarWindow(self.vault)
+        self.addCleanup(self.window.close)
+
+    def pick(self, day):
+        from PySide6.QtCore import QDate
+        self.window.calendar.setSelectedDate(QDate(day.year, day.month, day.day))
+
+    def color_of(self, day):
+        from PySide6.QtCore import QDate
+        look = self.window.calendar.dateTextFormat(QDate(day.year, day.month, day.day))
+        return look.foreground().color().name()
+
+    def texts(self, listing):
+        return [listing.item(i).text() for i in range(listing.count())]
+
+    def test_holidays_are_painted_red_and_the_paint_moves_with_the_page(self):
+        from PySide6.QtCore import Qt
+        self.window.calendar.setCurrentPage(2026, 10)
+        self.assertEqual(self.color_of(dt.date(2026, 10, 12)), theme.WARN.lower())  # スポーツの日
+        self.assertNotEqual(self.color_of(dt.date(2026, 10, 13)), theme.WARN.lower())
+        saturday = self.window.calendar.weekdayTextFormat(Qt.Saturday)
+        self.assertEqual(saturday.foreground().color().name(), theme.COOL.lower())
+        self.window.calendar.setCurrentPage(2027, 3)
+        self.assertNotEqual(self.color_of(dt.date(2026, 10, 12)), theme.WARN.lower())
+
+    def test_the_month_lists_its_holidays_and_a_click_selects_one(self):
+        self.window.calendar.setCurrentPage(2026, 11)
+        rows = self.texts(self.window.holiday_list)
+        self.assertEqual(len(rows), 2)
+        self.assertIn("文化の日", rows[0])
+        self.assertIn("勤労感謝の日", rows[1])
+        self.window._jump_to_holiday(self.window.holiday_list.item(1))
+        self.assertEqual(self.window.selected(), dt.date(2026, 11, 23))
+
+    def test_the_chosen_day_shows_its_holiday_and_alarms(self):
+        future = dt.date.today() + dt.timedelta(days=400)
+        while future.weekday() != 1:            # 火曜（「起床」が鳴る日）
+            future += dt.timedelta(days=1)
+        self.pick(future)
+        rows = self.texts(self.window.alarm_list)
+        self.assertEqual(rows, ["06:30  起床"])          # 「就寝」は OFF なので出ない
+        self.assertIn(future.strftime("%Y"), self.window.day_title.text())
+
+    def test_a_holiday_shows_its_name_and_why_the_alarm_stays_quiet(self):
+        from koyomi.almanac import Almanac
+        holiday = next(day for day, _name in Almanac().holidays_between(
+            dt.date.today() + dt.timedelta(days=1), dt.date.today() + dt.timedelta(days=800))
+            if day.weekday() < 5)
+        self.pick(holiday)
+        self.assertTrue(self.window.day_holiday.text())
+        self.assertEqual(self.texts(self.window.alarm_list),
+                         ["06:30  起床  — 祝日なので鳴らさない"])
+
+    def test_past_days_say_so(self):
+        self.pick(dt.date.today() - dt.timedelta(days=3))
+        self.assertEqual(self.texts(self.window.alarm_list), ["過ぎた日の予定は出しません"])
+
+    def test_the_month_arrows_are_drawn_as_text(self):
+        from PySide6.QtWidgets import QToolButton
+        from koyomi.ui.datelists import DateListDialog
+        dates = DateListDialog(self.vault.almanac)
+        self.addCleanup(dates.close)
+        for calendar in (self.window.calendar, dates.calendar):
+            back = calendar.findChild(QToolButton, "qt_calendar_prevmonth")
+            ahead = calendar.findChild(QToolButton, "qt_calendar_nextmonth")
+            self.assertEqual((back.text(), ahead.text()), ("◀", "▶"))
+            self.assertTrue(back.icon().isNull())
+
+    def test_without_jpholiday_it_still_opens_and_says_why(self):
+        from PySide6.QtWidgets import QLabel
+        from koyomi.ui.monthview import CalendarWindow
+        with mock.patch("koyomi.almanac.HOLIDAY_LIB_READY", False):
+            window = CalendarWindow(sample_vault())
+            self.addCleanup(window.close)
+            window.calendar.setCurrentPage(2026, 11)
+            self.assertEqual(self.texts(window.holiday_list), ["この月に祝日はありません"])
+        notes = [label.text() for label in window.findChildren(QLabel)]
+        self.assertTrue(any("jpholiday" in note for note in notes))
+
+
+class CalendarFromTheTray(unittest.TestCase):
+    def setUp(self):
+        i18n.set_language("ja")
+        mock.patch.object(Vault, "save").start()
+        self.addCleanup(mock.patch.stopall)
+        self.win = MainWindow(sample_vault(), quiet_engine())
+        self.addCleanup(self._shut)
+
+    def _shut(self):
+        self.win._quitting = True
+        self.win.close()
+
+    @staticmethod
+    def action(menu, text):
+        return next(a for a in menu.actions() if a.text() == text)
+
+    def test_the_tray_menu_opens_one_calendar(self):
+        self.action(self.win.tray.contextMenu(), "カレンダー").trigger()
+        first = self.win.calendar_window
+        self.assertIsNotNone(first)
+        self.assertTrue(first.isVisible())
+        self.action(self.win.tray.contextMenu(), "カレンダー").trigger()
+        self.assertIs(self.win.calendar_window, first)
+        first.close()
+        self.assertIsNone(self.win.calendar_window)
+
+    def test_the_menu_button_has_it_too(self):
+        self.action(self.win._build_more_menu(), "カレンダー…").trigger()
+        self.assertIsNotNone(self.win.calendar_window)
+
+    def test_a_new_alarm_appears_without_reopening(self):
+        self.win.open_calendar()
+        window = self.win.calendar_window
+        window.go_today()
+        self.win.vault.add(WakeItem(hour=23, minute=59, second=59, title="寝る前",
+                                    repeat=RepeatRule(cycle=Cycle.EVERY_DAY)))
+        self.win.after_change()
+        rows = [window.alarm_list.item(i).text() for i in range(window.alarm_list.count())]
+        self.assertIn("23:59  寝る前", rows)
+
+    def test_quitting_closes_it(self):
+        self.win.open_calendar()
+        window = self.win.calendar_window
+        self.win._close_extras()
+        self.assertIsNone(self.win.calendar_window)
+        self.assertFalse(window.isVisible())
+
 class WindowSizes(unittest.TestCase):
     """窓の大きさを覚えて、次に開いたときに戻すこと。"""
 

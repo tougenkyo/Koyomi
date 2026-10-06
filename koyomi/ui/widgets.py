@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import (Property, QEasingCurve, QEvent, QObject,
                             QPropertyAnimation, QRectF, QSize, Qt, Signal)
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QLabel, QPushButton, QSizePolicy, QTimeEdit,
-                               QWidget)
+                               QToolButton, QWidget)
 
 from . import theme
 
@@ -325,3 +325,17 @@ def sunday_first(widget) -> None:
         widget.installEventFilter(_SundayOnOpen(widget))
     else:
         widget.setFirstDayOfWeek(Qt.Sunday)
+
+
+def month_arrows(calendar) -> None:
+    """月送りのボタンを、絵ではなく文字の矢印にする。
+
+    Qt の矢印の絵は配色に合わせて塗り変わらず、明るい配色では見えなくなる。
+    文字にしておけば、スタイルシートの字の色で描かれる。
+    """
+    for name, arrow in (("qt_calendar_prevmonth", "◀"), ("qt_calendar_nextmonth", "▶")):
+        button = calendar.findChild(QToolButton, name)
+        if button is not None:
+            button.setIcon(QIcon())
+            button.setText(arrow)
+            button.setToolButtonStyle(Qt.ToolButtonTextOnly)

@@ -435,6 +435,57 @@ class Seconds(unittest.TestCase):
         self.assertEqual(hits, [dt.datetime(2026, 8, 27, 6, 30, 42)])
 
 
+class DayPlan(unittest.TestCase):
+    """カレンダーに出す「その日のアラーム」。"""
+
+    def setUp(self):
+        i18n.set_language("ja")
+        self.almanac = Almanac()
+        self.weekdays = alarm(repeat=RepeatRule(cycle=Cycle.WEEKDAYS,
+                                                weekdays=[0, 1, 2, 3, 4]))
+
+    def plan(self, item, day):
+        return planner.day_plan(item, day, self.almanac, BASE)
+
+    def test_a_day_it_rings(self):
+        self.assertEqual(self.plan(self.weekdays, dt.date(2026, 8, 28)),
+                         (dt.datetime(2026, 8, 28, 7, 0), ""))
+
+    def test_a_day_outside_the_rule_is_left_out(self):
+        self.assertIsNone(self.plan(self.weekdays, dt.date(2026, 8, 29)))   # 土曜
+
+    def test_a_holiday_it_steps_over_is_shown_with_the_reason(self):
+        # 2026/09/21 は敬老の日（月曜）
+        self.weekdays.dodge_holidays = True
+        moment, why = self.plan(self.weekdays, dt.date(2026, 9, 21))
+        self.assertEqual(moment, dt.datetime(2026, 9, 21, 7, 0))
+        self.assertEqual(why, "祝日なので鳴らさない")
+        self.weekdays.dodge_holidays = False
+        self.assertEqual(self.plan(self.weekdays, dt.date(2026, 9, 21))[1], "")
+
+    def test_a_day_on_a_list_it_steps_over_is_shown_with_the_reason(self):
+        key = sorted(self.almanac.lists)[0]
+        self.almanac.toggle_day(key, dt.date(2026, 8, 31))
+        self.weekdays.dodge_lists = [key]
+        self.assertEqual(self.plan(self.weekdays, dt.date(2026, 8, 31))[1],
+                         "登録日なので鳴らさない")
+
+    def test_the_skipped_ring_is_marked(self):
+        self.assertTrue(planner.arm_skip(self.weekdays, self.almanac, BASE))
+        self.assertEqual(self.plan(self.weekdays, dt.date(2026, 8, 27))[1], "この回は飛ばす")
+        self.assertEqual(self.plan(self.weekdays, dt.date(2026, 8, 28))[1], "")
+
+    def test_a_single_alarm_shows_only_on_its_one_day(self):
+        once = alarm(repeat=RepeatRule(cycle=Cycle.SINGLE))     # 6:00 の時点で 7:00
+        self.assertEqual(self.plan(once, dt.date(2026, 8, 27)),
+                         (dt.datetime(2026, 8, 27, 7, 0), ""))
+        self.assertIsNone(self.plan(once, dt.date(2026, 8, 28)))
+
+    def test_alarms_that_are_off_and_past_days_are_left_out(self):
+        self.assertIsNone(self.plan(self.weekdays, dt.date(2026, 8, 26)))
+        self.weekdays.active = False
+        self.assertIsNone(self.plan(self.weekdays, dt.date(2026, 8, 28)))
+
 class Wording(unittest.TestCase):
     def test_date_text_fills_in_the_pattern(self):
         moment = dt.datetime(2026, 9, 21, 7, 5, 9)

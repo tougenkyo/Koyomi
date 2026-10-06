@@ -25,6 +25,7 @@ from .bulk import BulkDialog
 from .datelists import DateListDialog
 from .editor import AlarmEditor
 from .floatbar import FloatBar
+from .monthview import CalendarWindow
 from .placement import Placement
 from .ring_window import RingWindow
 from .settings import SettingsDialog
@@ -205,6 +206,7 @@ class MainWindow(QMainWindow):
         self.timer_window = None
         self.world_window = None
         self.todo_window = None
+        self.calendar_window = None
         self.float_bar = None
         self.wake_clock = power.WakeClock()
         self._sleep_done_for = ""
@@ -356,6 +358,9 @@ class MainWindow(QMainWindow):
         show = QAction(tr("ウィンドウを開く"), self)
         show.triggered.connect(self._restore_window)
         menu.addAction(show)
+        calendar = QAction(tr("カレンダー"), self)
+        calendar.triggered.connect(self.open_calendar)
+        menu.addAction(calendar)
         menu.addSeparator()
         off = QAction(tr("すべて OFF"), self)
         off.triggered.connect(lambda: self.set_all(False))
@@ -438,6 +443,8 @@ class MainWindow(QMainWindow):
         except Exception as err:                      # noqa: BLE001 - 保存失敗は握って通知
             trouble = tr("設定を保存できませんでした: %s") % err
         self.reload()
+        if self.calendar_window is not None:
+            self.calendar_window.refresh()
         if trouble:
             self.flash_status(trouble)
 
@@ -794,6 +801,7 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("日付リストの管理…"), self.open_date_lists)
         menu.addAction(tr("タイマー・ストップウォッチ…"), self.open_timers)
         menu.addAction(tr("世界時計…"), self.open_world_clock)
+        menu.addAction(tr("カレンダー…"), self.open_calendar)
         menu.addAction(tr("やることリスト…"), self.open_todo)
         menu.addSeparator()
         caption = (tr("フローティング表示をしまう") if self.float_bar
@@ -838,6 +846,18 @@ class MainWindow(QMainWindow):
     def _forget_world(self, *_args) -> None:
         self.vault.save()
         self.world_window = None
+
+    def open_calendar(self) -> None:
+        if self.calendar_window is None:
+            self.calendar_window = CalendarWindow(self.vault, self)
+            Placement(self.calendar_window, self.vault, "calendar")
+            self.calendar_window.finished.connect(self._forget_calendar)
+        self.calendar_window.show()
+        self.calendar_window.raise_()
+        self.calendar_window.activateWindow()
+
+    def _forget_calendar(self, *_args) -> None:
+        self.calendar_window = None
 
     def open_todo(self) -> None:
         if self.todo_window is None:
@@ -1175,7 +1195,7 @@ class MainWindow(QMainWindow):
             self.logbook.close(self._exit_how)
 
     def _close_extras(self) -> None:
-        for attr in ("float_bar", "world_window", "todo_window"):
+        for attr in ("float_bar", "world_window", "todo_window", "calendar_window"):
             window = getattr(self, attr, None)
             if window is not None:
                 window.close()
