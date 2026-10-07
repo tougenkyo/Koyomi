@@ -3,19 +3,21 @@
 祝日は almanac（中身は jpholiday）から引く。日曜と祝日は赤、土曜は青。
 右側には選んだ日の祝日名・日付リスト・その日に鳴るアラームと、
 表示している月の祝日を並べる。
+
+トレイの右クリックメニューには、小さな暦（MiniMonth）も埋め込む。
 """
 from __future__ import annotations
 
 import datetime as dt
 
-from PySide6.QtCore import QDate, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QFont, QTextCharFormat
+from PySide6.QtCore import QDate, QEvent, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QTextCharFormat
 from PySide6.QtWidgets import (QCalendarWidget, QDialog, QHBoxLayout, QLabel,
                                QListWidget, QListWidgetItem, QPushButton,
-                               QVBoxLayout)
+                               QToolButton, QToolTip, QVBoxLayout, QWidget)
 
 from .. import planner
-from ..models import WEEKDAY_LABELS
+from ..models import WEEKDAY_LABELS, WEEKDAY_ORDER
 from . import theme
 from .widgets import month_arrows, sunday_first
 from ..i18n import tr
@@ -151,7 +153,10 @@ class CalendarWindow(QDialog):
         return _to_date(self.calendar.selectedDate())
 
     def go_today(self) -> None:
-        self.calendar.setSelectedDate(_to_qdate(dt.date.today()))
+        self.pick(dt.date.today())
+
+    def pick(self, day: dt.date) -> None:
+        self.calendar.setSelectedDate(_to_qdate(day))
 
     def refresh(self) -> None:
         """アラームや日付リストが変わったときに描き直す。"""
@@ -258,3 +263,178 @@ class CalendarWindow(QDialog):
     def closeEvent(self, event):
         self.beat.stop()
         super().closeEvent(event)
+
+
+class MiniMonth(QWidget):
+    """トレイの右クリックメニューに埋め込む、小さな月の暦。
+
+    日曜と祝日は赤、土曜は青、今日はさし色の地で示す。祝日には
+    名前の吹き出しが出て、下にその月の祝日を並べる。
+    日付を押すと ``picked`` を出す（カレンダーの窓をその日で開く）。
+    """
+
+    picked = Signal(object)
+
+    CELL_W = 30
+    CELL_H = 22
+    PAD = 8
+
+    def __init__(self, vault, parent=None):
+        super().__init__(parent)
+        self.vault = vault
+        self.setMouseTracking(True)
+        self.today = dt.date.today()
+        self.year, self.month = self.today.year, self.today.month
+        self.names = {}             # 日付 → 祝日名（はみ出して見える日も含む）
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(self.PAD, self.PAD, self.PAD, 4)
+        root.setSpacing(4)
+
+        head = QHBoxLayout()
+        head.setSpacing(4)
+        self.back = self._arrow("◀", -1)
+        head.addWidget(self.back)
+        self.title = QLabel("")
+        self.title.setAlignment(Qt.AlignCenter)
+        self.title.setStyleSheet("font-weight: bold; background: transparent;")
+        head.addWidget(self.title, 1)
+        self.ahead = self._arrow("▶", 1)
+        head.addWidget(self.ahead)
+        root.addLayout(head)
+
+        # 暦のマスは paintEvent で自分で描く。ここは場所取りだけ
+        self.grid = QWidget()
+        self.grid.setFixedSize(7 * self.CELL_W, 7 * self.CELL_H)
+        self.grid.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.grid.setStyleSheet("background: transparent;")
+        root.addWidget(self.grid, 0, Qt.AlignHCenter)
+
+        self.holidays = QLabel("")
+        self.holidays.setStyleSheet("color: %s; font-size: 11px; background: transparent;"
+                                    % theme.TEXT_SUB)
+        root.addWidget(self.holidays)
+        self.reset()
+
+    def _arrow(self, text: str, step: int) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.NoFocus)
+        button.setStyleSheet("QToolButton { background: transparent; border: none;"
+                             " color: %s; padding: 0 6px; }"
+                             "QToolButton:hover { color: %s; }"
+                             % (theme.TEXT_SUB, theme.ACCENT))
+        button.clicked.connect(lambda: self.step(step))
+        return button
+
+    @property
+    def almanac(self):
+        return self.vault.almanac
+
+    # ---- 月 ---------------------------------------------------------------
+    def reset(self) -> None:
+        """今日の月に戻す。メニューを開くたびに呼ぶ。"""
+        self.today = dt.date.today()
+        self.show_month(self.today.year, self.today.month)
+
+    def step(self, months: int) -> None:
+        index = self.year * 12 + (self.month - 1) + months
+        self.show_month(index // 12, index % 12 + 1)
+
+    def show_month(self, year: int, month: int) -> None:
+        self.year, self.month = year, month
+        self.title.setText(tr("%d年%d月") % (year, month))
+        start, end = _month_span(year, month)
+        self.names = dict(self.almanac.holidays_between(start, end))
+        lines = []
+        for day, name in sorted(self.names.items()):
+            if (day.year, day.month) == (year, month):
+                weekday = tr("（%s）") % tr(WEEKDAY_LABELS[day.weekday()])
+                lines.append("%d/%d%s  %s" % (day.month, day.day, weekday, name))
+        self.holidays.setText("\n".join(lines) or tr("この月に祝日はありません"))
+        self.update()
+
+    def first_cell(self) -> dt.date:
+        """左上のマスの日付（1 日を含む週の日曜）。"""
+        first = dt.date(self.year, self.month, 1)
+        return first - dt.timedelta(days=(first.weekday() + 1) % 7)
+
+    def day_at(self, point) -> dt.date | None:
+        """この部品の上の位置にある日付。マスの外なら None。"""
+        x = point.x() - self.grid.x()
+        y = point.y() - self.grid.y()
+        if x < 0 or y < 0:
+            return None
+        col, row = int(x // self.CELL_W), int(y // self.CELL_H) - 1   # 1 行目は曜日
+        if not (0 <= col < 7 and 0 <= row < 6):
+            return None
+        return self.first_cell() + dt.timedelta(days=row * 7 + col)
+
+    def color_of(self, day: dt.date) -> str:
+        if (day.year, day.month) != (self.year, self.month):
+            return theme.TEXT_SUB
+        if day in self.names or day.weekday() == 6:
+            return theme.WARN
+        if day.weekday() == 5:
+            return theme.COOL
+        return theme.TEXT
+
+    # ---- 描く -------------------------------------------------------------
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.translate(self.grid.pos())
+        small = QFont(self.font())
+        small.setPointSizeF(max(7.0, small.pointSizeF() - 1))
+        p.setFont(small)
+        for col, weekday in enumerate(WEEKDAY_ORDER):
+            p.setPen(QColor({6: theme.WARN, 5: theme.COOL}.get(weekday, theme.TEXT_SUB)))
+            p.drawText(QRectF(col * self.CELL_W, 0, self.CELL_W, self.CELL_H),
+                       Qt.AlignCenter, tr(WEEKDAY_LABELS[weekday]))
+        p.setFont(self.font())
+        day = self.first_cell()
+        for index in range(42):
+            col, row = index % 7, index // 7 + 1
+            cell = QRectF(col * self.CELL_W, row * self.CELL_H, self.CELL_W, self.CELL_H)
+            color = self.color_of(day)
+            if day == self.today:
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(theme.ACCENT))
+                p.drawRoundedRect(cell.adjusted(2, 1, -2, -1), 5, 5)
+                color = theme.ON_ACCENT
+            p.setPen(QColor(color))
+            p.drawText(cell, Qt.AlignCenter, str(day.day))
+            day += dt.timedelta(days=1)
+        p.end()
+
+    # ---- 触る -------------------------------------------------------------
+    def mousePressEvent(self, event) -> None:
+        event.accept()          # メニューへ渡すと、押しただけで閉じてしまう
+
+    def mouseReleaseEvent(self, event) -> None:
+        day = self.day_at(event.position().toPoint())
+        if day is not None and event.button() == Qt.LeftButton:
+            self.picked.emit(day)
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        day = self.day_at(event.position().toPoint())
+        self.setCursor(Qt.PointingHandCursor if day else Qt.ArrowCursor)
+        event.accept()
+
+    def wheelEvent(self, event) -> None:
+        self.step(-1 if event.angleDelta().y() > 0 else 1)
+        event.accept()
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.ToolTip:
+            day = self.day_at(event.pos())
+            name = self.names.get(day) if day else None
+            if name:
+                QToolTip.showText(event.globalPos(), "%s\n%s" % (day_heading(day), name), self)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().event(event)

@@ -629,6 +629,7 @@ WORDS = {
     "今日へ": "Today",
     "この日のアラーム": "Alarms on this day",
     "%d年%d月の祝日": "Holidays in %d/%d",
+    "%d年%d月": "%d/%d",
     "この月に祝日はありません": "No public holidays this month",
     "日付リスト: %s": "Date lists: %s",
     "過ぎた日の予定は出しません": "Past days are not listed",

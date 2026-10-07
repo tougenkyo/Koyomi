@@ -1297,6 +1297,93 @@ class CalendarFromTheTray(unittest.TestCase):
         self.assertIsNone(self.win.calendar_window)
         self.assertFalse(window.isVisible())
 
+    def test_the_tray_menu_starts_with_a_small_calendar(self):
+        from PySide6.QtWidgets import QWidgetAction
+        from koyomi.ui.monthview import MiniMonth
+        menu = self.win.tray.contextMenu()
+        first = menu.actions()[0]
+        self.assertIsInstance(first, QWidgetAction)
+        self.assertIsInstance(first.defaultWidget(), MiniMonth)
+        self.assertIn("カレンダー", [a.text() for a in menu.actions()])   # 項目も残す
+
+    def test_opening_the_menu_goes_back_to_this_month(self):
+        month = self.win.tray_month
+        month.step(5)
+        self.win.tray.contextMenu().aboutToShow.emit()
+        today = dt.date.today()
+        self.assertEqual((month.year, month.month), (today.year, today.month))
+
+    def test_a_day_picked_there_opens_the_calendar_on_that_day(self):
+        day = dt.date.today() + dt.timedelta(days=40)
+        self.win.tray_month.picked.emit(day)
+        self.assertIsNotNone(self.win.calendar_window)
+        self.assertEqual(self.win.calendar_window.selected(), day)
+
+
+class SmallCalendar(unittest.TestCase):
+    """トレイのメニューに埋め込む小さな暦。"""
+
+    def setUp(self):
+        from koyomi.ui.monthview import MiniMonth
+        i18n.set_language("ja")
+        self.month = MiniMonth(Vault())
+        self.addCleanup(self.month.deleteLater)
+
+    def point(self, row, col):
+        from PySide6.QtCore import QPoint
+        m = self.month
+        return m.grid.pos() + QPoint(col * m.CELL_W + m.CELL_W // 2,
+                                     (row + 1) * m.CELL_H + m.CELL_H // 2)
+
+    def test_it_opens_on_this_month_with_today_marked(self):
+        today = dt.date.today()
+        self.assertEqual((self.month.year, self.month.month), (today.year, today.month))
+        self.assertEqual(self.month.today, today)
+
+    def test_the_arrows_step_across_the_year(self):
+        self.month.show_month(2026, 12)
+        self.month.ahead.click()
+        self.assertEqual((self.month.year, self.month.month), (2027, 1))
+        self.month.back.click()
+        self.month.back.click()
+        self.assertEqual((self.month.year, self.month.month), (2026, 11))
+        self.assertEqual(self.month.title.text(), "2026年11月")
+
+    def test_the_grid_starts_on_sunday_and_maps_back_to_dates(self):
+        self.month.show_month(2026, 10)              # 10/1 は木曜
+        self.assertEqual(self.month.first_cell(), dt.date(2026, 9, 27))
+        self.assertEqual(self.month.day_at(self.point(0, 4)), dt.date(2026, 10, 1))
+        self.assertEqual(self.month.day_at(self.point(2, 1)), dt.date(2026, 10, 12))
+        self.assertIsNone(self.month.day_at(self.month.grid.pos()))   # 曜日の行
+
+    def test_holidays_and_weekends_are_coloured(self):
+        self.month.show_month(2026, 10)
+        self.assertEqual(self.month.color_of(dt.date(2026, 10, 12)), theme.WARN)   # スポーツの日
+        self.assertEqual(self.month.color_of(dt.date(2026, 10, 11)), theme.WARN)   # 日曜
+        self.assertEqual(self.month.color_of(dt.date(2026, 10, 10)), theme.COOL)   # 土曜
+        self.assertEqual(self.month.color_of(dt.date(2026, 10, 13)), theme.TEXT)
+        self.assertEqual(self.month.color_of(dt.date(2026, 9, 27)), theme.TEXT_SUB)
+
+    def test_the_month_lists_its_holidays(self):
+        self.month.show_month(2026, 11)
+        text = self.month.holidays.text()
+        self.assertIn("11/3（火）  文化の日", text)
+        self.assertIn("勤労感謝の日", text)
+        self.month.show_month(2026, 6)
+        self.assertEqual(self.month.holidays.text(), "この月に祝日はありません")
+
+    def test_a_click_on_a_day_picks_it(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        self.month.show_month(2026, 10)
+        got = []
+        self.month.picked.connect(got.append)
+        QTest.mouseClick(self.month, Qt.LeftButton, Qt.NoModifier, self.point(2, 1))
+        self.assertEqual(got, [dt.date(2026, 10, 12)])
+        QTest.mouseClick(self.month, Qt.LeftButton, Qt.NoModifier, self.month.grid.pos())
+        self.assertEqual(len(got), 1)                # 曜日の行では何も起きない
+
+
 class WindowSizes(unittest.TestCase):
     """窓の大きさを覚えて、次に開いたときに戻すこと。"""
 

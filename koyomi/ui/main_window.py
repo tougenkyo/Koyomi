@@ -10,7 +10,8 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QMainWindow,
                                QMenu, QMessageBox, QPushButton, QScrollArea,
-                               QSystemTrayIcon, QVBoxLayout, QWidget)
+                               QSystemTrayIcon, QVBoxLayout, QWidget,
+                               QWidgetAction)
 
 from .. import APP_TITLE, actions, autostart, i18n, planner, power
 from ..director import RingDirector
@@ -25,7 +26,7 @@ from .bulk import BulkDialog
 from .datelists import DateListDialog
 from .editor import AlarmEditor
 from .floatbar import FloatBar
-from .monthview import CalendarWindow
+from .monthview import CalendarWindow, MiniMonth
 from .placement import Placement
 from .ring_window import RingWindow
 from .settings import SettingsDialog
@@ -355,6 +356,14 @@ class MainWindow(QMainWindow):
     def _build_tray(self) -> None:
         self.tray = QSystemTrayIcon(QIcon(ensure_icon()), self)
         menu = QMenu()
+        # いちばん上に小さな暦。開くたびに今日の月へ戻す
+        self.tray_month = MiniMonth(self.vault)
+        self.tray_month.picked.connect(lambda day: self._pick_from_tray(menu, day))
+        holder = QWidgetAction(menu)
+        holder.setDefaultWidget(self.tray_month)
+        menu.addAction(holder)
+        menu.aboutToShow.connect(self.tray_month.reset)
+        menu.addSeparator()
         show = QAction(tr("ウィンドウを開く"), self)
         show.triggered.connect(self._restore_window)
         menu.addAction(show)
@@ -374,6 +383,11 @@ class MainWindow(QMainWindow):
             lambda reason: self._restore_window()
             if reason == QSystemTrayIcon.Trigger else None)
         self.tray.show()
+
+    def _pick_from_tray(self, menu, day) -> None:
+        """小さな暦で押した日を、カレンダーの窓で開く。"""
+        menu.hide()
+        self.open_calendar(day)
 
     # ------------------------------------------------------------------
     # 一覧の更新
@@ -847,11 +861,13 @@ class MainWindow(QMainWindow):
         self.vault.save()
         self.world_window = None
 
-    def open_calendar(self) -> None:
+    def open_calendar(self, day=None) -> None:
         if self.calendar_window is None:
             self.calendar_window = CalendarWindow(self.vault, self)
             Placement(self.calendar_window, self.vault, "calendar")
             self.calendar_window.finished.connect(self._forget_calendar)
+        if isinstance(day, dt.date):       # メニューからは押した印の真偽値が来る
+            self.calendar_window.pick(day)
         self.calendar_window.show()
         self.calendar_window.raise_()
         self.calendar_window.activateWindow()
