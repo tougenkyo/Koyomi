@@ -655,16 +655,59 @@ class MainWindow(QMainWindow):
             self.reload()
 
     def preview_ring(self, item: WakeItem) -> None:
+        with_actions = False
+        # 未承認の連動動作は試しでも動かさないので、尋ねるまでもない
+        if item.launch.has_work() and item.launch.approved:
+            with_actions = self._ask_trial_actions(item)
+            if with_actions is None:
+                return
         if item.silent_run:
-            self._preview_silence(item)
+            self._preview_silence(item, with_actions)
             return
-        self._open_ring(item, round_no=0, preview=True)
+        self._open_ring(item, round_no=0, preview=True, with_actions=with_actions)
 
-    def _preview_silence(self, item: WakeItem) -> None:
-        """画面を出さないアラームの試し。通知の出かたを見るためのもの。"""
-        message = tr("「%s」は画面を出さずに実行します。連動動作は"
-                     "編集画面の「連動」タブにある「いま試す」で確かめられます。"
-                     ) % item.display_title()
+    def _ask_trial_actions(self, item: WakeItem):
+        """試し鳴らしで連動動作も動かすか。True / False、やめたら None。"""
+        box, runs, plain = self._trial_box(item)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is runs:
+            return True
+        if clicked is plain:
+            return False
+        return None
+
+    def _trial_box(self, item: WakeItem) -> tuple:
+        """試し鳴らしの確かめ。うっかりアプリを立ち上げないよう、既定は動かさない側。"""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(tr("試し鳴らし"))
+        box.setText(tr("「%s」には連動動作が設定されています。"
+                       "試し鳴らしで連動動作も実行しますか？") % item.display_title())
+        box.setInformativeText(item.launch.summary())
+        runs = box.addButton(tr("連動動作も実行する"), QMessageBox.YesRole)
+        plain = box.addButton(tr("通知だけ見る") if item.silent_run
+                              else tr("鳴らすだけ"), QMessageBox.NoRole)
+        cancel = box.addButton(tr("やめる"), QMessageBox.RejectRole)
+        box.setDefaultButton(plain)
+        box.setEscapeButton(cancel)
+        # 行のメニューから選ぶので、窓の後ろに隠れないようにする
+        box.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        return box, runs, plain
+
+    def _preview_silence(self, item: WakeItem, with_actions: bool = False) -> None:
+        """画面を出さないアラームの試し。通知の出かたを見るためのもの。
+
+        連動動作も頼まれたら本番と同じく動かすが、予定には手を付けない。
+        """
+        if with_actions:
+            note = actions.run_now(item.launch)
+            headline = tr("「%s」を試しに画面を出さずに実行しました。") % item.display_title()
+            message = "%s %s" % (headline, note) if note else headline
+        else:
+            message = tr("「%s」は画面を出さずに実行します。連動動作は"
+                         "編集画面の「連動」タブにある「いま試す」で確かめられます。"
+                         ) % item.display_title()
         self.flash_status(message)
         if item.notify_silent_run and self.tray.isVisible():
             self.tray.showMessage(APP_TITLE, message,
@@ -1031,15 +1074,16 @@ class MainWindow(QMainWindow):
                                   QSystemTrayIcon.Information, 6000)
         self.after_change()
 
-    def _open_ring(self, item: WakeItem, round_no: int, preview: bool = False) -> None:
+    def _open_ring(self, item: WakeItem, round_no: int, preview: bool = False,
+                   with_actions: bool = False) -> None:
         left = self.director.snooze_rounds_left(item)
         window = RingWindow(item, self.engine, round_no, left, None,
                             hold_awake=self.vault.prefs.keep_awake_ringing)
-        if not preview:
+        if not preview or with_actions:
             self._fire_actions(item, at_stop=False)
         if preview:
             window.setWindowTitle(tr("試し鳴動 ｜ ") + item.display_title())
-            window.stopped.connect(lambda _i: self.director.release(item.uid))
+            window.stopped.connect(lambda _i: self._end_trial(item, with_actions))
             window.snoozed.connect(lambda _i, _m: self.director.release(item.uid))
             window.auto_stopped.connect(lambda _i: self.director.release(item.uid))
         else:
@@ -1051,6 +1095,12 @@ class MainWindow(QMainWindow):
         window.show()
         window.raise_()
         window.activateWindow()
+
+    def _end_trial(self, item: WakeItem, with_actions: bool) -> None:
+        """試し鳴らしを止めた。「止めたとき」の連動動作だけ本番と同じく動かす。"""
+        if with_actions:
+            self._fire_actions(item, at_stop=True)
+        self.director.release(item.uid)
 
     def _forget_ring(self, uid: str) -> None:
         self.ring_windows.pop(uid, None)

@@ -808,6 +808,14 @@ WORDS = {
     "「いま試す」で確かめられます。":
         "\"%s\" runs without showing anything. To check the companion action, "
         "use \"Try it now\" on the \"Companion\" tab of the edit screen.",
+    "「%s」を試しに画面を出さずに実行しました。":
+        "Test-ran \"%s\" without showing anything.",
+    "試し鳴らし": "Test ring",
+    "「%s」には連動動作が設定されています。試し鳴らしで連動動作も実行しますか？":
+        "\"%s\" has a companion action. Run it as part of this test ring too?",
+    "連動動作も実行する": "Run the companion action too",
+    "通知だけ見る": "Just show the notice",
+    "鳴らすだけ": "Just ring",
     "いま試す": "Try it now",
     "実行の記録": "Run log",
     "連動動作を試しました": "Tried the companion action",

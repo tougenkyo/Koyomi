@@ -586,11 +586,33 @@ class SilentRun(unittest.TestCase):
 
     def test_a_trial_does_not_launch_anything(self):
         from koyomi.ui import main_window as mw
-        with mock.patch.object(mw.actions, "run_now") as never:
-            self.win.preview_ring(self.item)
+        with mock.patch.object(self.win, "_ask_trial_actions", return_value=False):
+            with mock.patch.object(mw.actions, "run_now") as never:
+                self.win.preview_ring(self.item)
         never.assert_not_called()
         self.assertEqual(self.win.ring_windows, {})
         self.assertEqual(len(self.notices), 1)
+
+    def test_a_trial_can_launch_when_asked(self):
+        from koyomi.ui import main_window as mw
+        with mock.patch.object(self.win, "_ask_trial_actions", return_value=True):
+            with mock.patch.object(mw.actions, "run_now",
+                                   return_value="どこかの.exe を起動しました。") as ran:
+                self.win.preview_ring(self.item)
+        ran.assert_called_once_with(self.item.launch)
+        self.assertEqual(self.win.ring_windows, {})
+        self.assertEqual(len(self.notices), 1)
+        self.assertIn("試しに", self.notices[0][1])
+        self.assertIn("起動しました", self.notices[0][1])
+        self.assertTrue(self.item.active, "試しなのに片付けられた")
+
+    def test_a_cancelled_trial_does_nothing(self):
+        from koyomi.ui import main_window as mw
+        with mock.patch.object(self.win, "_ask_trial_actions", return_value=None):
+            with mock.patch.object(mw.actions, "run_now") as never:
+                self.win.preview_ring(self.item)
+        never.assert_not_called()
+        self.assertEqual(self.notices, [])
 
     def test_the_list_shows_a_marker(self):
         from koyomi.ui.widgets import Pill
@@ -603,6 +625,93 @@ class SilentRun(unittest.TestCase):
         again.apply(self.vault.snapshot())
         self.assertTrue(again.items[0].silent_run)
         self.assertTrue(again.items[0].notify_silent_run)
+
+
+class TrialRingWithCompanion(unittest.TestCase):
+    """試し鳴らしで、連動動作も動かすかを尋ねること。"""
+
+    def setUp(self):
+        from koyomi.actions import LaunchPlan
+        i18n.set_language("ja")
+        self.vault = Vault()
+        self.item = WakeItem(hour=6, minute=30, title="巡回")
+        self.item.launch = LaunchPlan(enabled=True, program="どこかの.exe")
+        self.vault.add(self.item)
+        self.win = MainWindow(self.vault, quiet_engine())
+        self.addCleanup(self._shut)
+
+    def _shut(self):
+        self.win._quitting = True
+        self.win.close()
+
+    def _try(self, answer):
+        from koyomi.ui import main_window as mw
+        with mock.patch.object(self.win, "_ask_trial_actions", return_value=answer) as asked:
+            with mock.patch.object(mw.actions, "run", return_value="") as ran:
+                self.win.preview_ring(self.item)
+        return asked, ran
+
+    def test_the_box_defaults_to_not_running(self):
+        box, runs, plain = self.win._trial_box(self.item)
+        self.assertIn("巡回", box.text())
+        self.assertIn("どこかの.exe", box.informativeText())
+        self.assertEqual(runs.text(), "連動動作も実行する")
+        self.assertEqual(box.defaultButton().text(), "鳴らすだけ")
+        self.assertEqual(box.escapeButton().text(), "やめる")
+        self.item.silent_run = True
+        box, _runs, plain = self.win._trial_box(self.item)
+        self.assertEqual(plain.text(), "通知だけ見る")
+
+    def test_each_button_gives_its_answer(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        def press(label):
+            def fake_exec(box):
+                next(b for b in box.buttons() if b.text() == label).click()
+                return 0
+            return fake_exec
+
+        for label, answer in (("連動動作も実行する", True), ("鳴らすだけ", False),
+                              ("やめる", None)):
+            with mock.patch.object(QMessageBox, "exec", press(label)):
+                self.assertIs(self.win._ask_trial_actions(self.item), answer, label)
+
+    def test_ringing_only_launches_nothing(self):
+        _asked, ran = self._try(False)
+        ran.assert_not_called()
+        self.assertIn(self.item.uid, self.win.ring_windows)
+
+    def test_asked_to_run_it_launches_at_the_start(self):
+        _asked, ran = self._try(True)
+        ran.assert_called_once_with(self.item.launch, False)
+        self.assertIn(self.item.uid, self.win.ring_windows)
+
+    def test_a_stop_timed_action_waits_for_the_stop(self):
+        from koyomi.ui import main_window as mw
+        self.item.launch.at_stop = True
+        self._try(True)
+        window = self.win.ring_windows[self.item.uid]
+        with mock.patch.object(mw.actions, "run", return_value="") as ran:
+            window.stopped.emit(self.item)
+        ran.assert_called_once_with(self.item.launch, True)
+        self.assertTrue(self.item.active, "試しなのに片付けられた")
+
+    def test_cancel_does_not_ring(self):
+        _asked, ran = self._try(None)
+        ran.assert_not_called()
+        self.assertEqual(self.win.ring_windows, {})
+
+    def test_no_question_without_a_companion(self):
+        self.item.launch.enabled = False
+        asked, _ran = self._try(True)
+        asked.assert_not_called()
+        self.assertIn(self.item.uid, self.win.ring_windows)
+
+    def test_no_question_while_unapproved(self):
+        self.item.launch.approved = False
+        asked, _ran = self._try(True)
+        asked.assert_not_called()
+        self.assertIn(self.item.uid, self.win.ring_windows)
 
 
 class TryTheCompanionNow(unittest.TestCase):
@@ -1205,8 +1314,11 @@ class CalendarView(unittest.TestCase):
         self.assertEqual(self.window.selected(), dt.date(2026, 11, 23))
 
     def test_the_chosen_day_shows_its_holiday_and_alarms(self):
+        from koyomi.almanac import Almanac
+        almanac = Almanac()
         future = dt.date.today() + dt.timedelta(days=400)
-        while future.weekday() != 1:            # 火曜（「起床」が鳴る日）
+        # 火曜（「起床」が鳴る日）で、祝日に当たらない日。祝日は別のテストで見る
+        while future.weekday() != 1 or almanac.is_holiday(future):
             future += dt.timedelta(days=1)
         self.pick(future)
         rows = self.texts(self.window.alarm_list)
