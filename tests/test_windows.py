@@ -18,6 +18,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
 from koyomi import APP_NAME, i18n, logbook, updater
@@ -50,7 +51,28 @@ def quiet_engine() -> SoundEngine:
     return engine
 
 
-class Windows(unittest.TestCase):
+def sweep() -> None:
+    """残った窓を閉じて、Qt の手順で消す。
+
+    PySide6 6.12 では、親のない窓を Python の後片付けに任せて消すと、
+    テストが全部通ったあとの終わり際に落ちることがある。
+    """
+    for window in _app.topLevelWidgets():
+        window.close()
+        window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+class QtCase(unittest.TestCase):
+    """1 件ごとに、作った窓を片付けるテスト。"""
+
+    def run(self, result=None):
+        # 後片付けは登録の逆順に走るので、各テストの片付けが済んでから掃く
+        self.addCleanup(sweep)
+        return super().run(result)
+
+
+class Windows(QtCase):
     def setUp(self):
         i18n.set_language("ja")
         theme.apply("yoichi-kohaku")
@@ -168,7 +190,7 @@ class Windows(unittest.TestCase):
 BELL = "C:/sounds/bell.mp3"
 
 
-class Countdowns(unittest.TestCase):
+class Countdowns(QtCase):
     """足したらすぐ計り始めること。終わったときの音を選べること。"""
 
     def setUp(self):
@@ -303,7 +325,7 @@ class Countdowns(unittest.TestCase):
         self.assertIn(notice, seen)
 
 
-class TimeField(unittest.TestCase):
+class TimeField(QtCase):
     """カーソルの下の桁がホイールで動くこと。"""
 
     def _roll(self, widget, x, up=True):
@@ -340,7 +362,7 @@ class TimeField(unittest.TestCase):
         field.close()
 
 
-class SundayFirst(unittest.TestCase):
+class SundayFirst(QtCase):
     """曜日はどこでも日曜はじめに並ぶこと。保存する番号は変えないこと。"""
 
     def setUp(self):
@@ -420,7 +442,7 @@ class SundayFirst(unittest.TestCase):
             self.assertIsNone(field.findChild(QCalendarWidget))
 
 
-class NthWeeks(unittest.TestCase):
+class NthWeeks(QtCase):
     """毎月・第n曜日で、週を複数選べること。"""
 
     def setUp(self):
@@ -473,7 +495,7 @@ class NthWeeks(unittest.TestCase):
         self.assertEqual(editor.value().week_indexes, [1])
 
 
-class RepeatPicker(unittest.TestCase):
+class RepeatPicker(QtCase):
     """繰り返しの選択肢と、その入力欄の対応。"""
 
     def setUp(self):
@@ -520,7 +542,7 @@ class RepeatPicker(unittest.TestCase):
         self.assertLess(short, tall - 100)
 
 
-class SilentRun(unittest.TestCase):
+class SilentRun(QtCase):
     """画面を出さずに、ついでにやることだけ済ませるアラーム。"""
 
     def setUp(self):
@@ -627,7 +649,7 @@ class SilentRun(unittest.TestCase):
         self.assertTrue(again.items[0].notify_silent_run)
 
 
-class TrialRingWithCompanion(unittest.TestCase):
+class TrialRingWithCompanion(QtCase):
     """試し鳴らしで、連動動作も動かすかを尋ねること。"""
 
     def setUp(self):
@@ -714,7 +736,7 @@ class TrialRingWithCompanion(unittest.TestCase):
         self.assertIn(self.item.uid, self.win.ring_windows)
 
 
-class TryTheCompanionNow(unittest.TestCase):
+class TryTheCompanionNow(QtCase):
     """連動動作を、時刻を待たずにその場で試せること。"""
 
     def setUp(self):
@@ -794,7 +816,7 @@ class TryTheCompanionNow(unittest.TestCase):
         self.assertIn("まだ記録はありません", shown.call_args[0][2])
 
 
-class SkipOnTheCard(unittest.TestCase):
+class SkipOnTheCard(QtCase):
     """一覧の札が、飛ばす回を過ぎたら外れて、そのことが保存されること。"""
 
     def setUp(self):
@@ -885,7 +907,7 @@ class SkipOnTheCard(unittest.TestCase):
         self.assertEqual(order[:2], ["sweep", "start"])
 
 
-class SilenceHidesWhatDoesNotApply(unittest.TestCase):
+class SilenceHidesWhatDoesNotApply(QtCase):
     """画面を出さない設定にすると、関わりのない欄が引っ込む。"""
 
     def setUp(self):
@@ -944,7 +966,7 @@ class SilenceHidesWhatDoesNotApply(unittest.TestCase):
         self.assertFalse(saved.notify_silent_run)
 
 
-class DeleteAfterRinging(unittest.TestCase):
+class DeleteAfterRinging(QtCase):
     """鳴り終わったら削除する指定。止め方によらず、鳴り終えたら一覧から消える。"""
 
     def setUp(self):
@@ -1019,7 +1041,7 @@ class DeleteAfterRinging(unittest.TestCase):
         self.assertNotIn("済んだら削除", self.pills(), "繰り返すものは消えないのに札が出る")
 
 
-class DeleteBoxInTheEditor(unittest.TestCase):
+class DeleteBoxInTheEditor(QtCase):
     """「鳴り終わったら削除」は、繰り返しを選ぶところに、1 回きりのときだけ出る。"""
 
     def setUp(self):
@@ -1048,7 +1070,7 @@ class DeleteBoxInTheEditor(unittest.TestCase):
         self.assertFalse(self.editor.result_item().erase_after_stop)
 
 
-class QuitAndRecord(unittest.TestCase):
+class QuitAndRecord(QtCase):
     """「終了」の確かめと、どう終わったかの控え。"""
 
     def setUp(self):
@@ -1207,7 +1229,7 @@ class QuitAndRecord(unittest.TestCase):
         self.assertIn(story, [call[0][1] for call in report.call_args_list])
 
 
-class RestartAfterUpdate(unittest.TestCase):
+class RestartAfterUpdate(QtCase):
     """更新して開き直すとき、新しい版が立ち上がるまで古い版は終わらない。"""
 
     def setUp(self):
@@ -1272,7 +1294,7 @@ class RestartAfterUpdate(unittest.TestCase):
         self.assertIn("開き直せませんでした", self.dialog.headline.text())
 
 
-class CalendarView(unittest.TestCase):
+class CalendarView(QtCase):
     """トレイから開くカレンダー。祝日に色が付き、選んだ日の予定が出ること。"""
 
     def setUp(self):
@@ -1362,7 +1384,7 @@ class CalendarView(unittest.TestCase):
         self.assertTrue(any("jpholiday" in note for note in notes))
 
 
-class CalendarFromTheTray(unittest.TestCase):
+class CalendarFromTheTray(QtCase):
     def setUp(self):
         i18n.set_language("ja")
         mock.patch.object(Vault, "save").start()
@@ -1432,7 +1454,7 @@ class CalendarFromTheTray(unittest.TestCase):
         self.assertEqual(self.win.calendar_window.selected(), day)
 
 
-class SmallCalendar(unittest.TestCase):
+class SmallCalendar(QtCase):
     """トレイのメニューに埋め込む小さな暦。"""
 
     def setUp(self):
@@ -1496,7 +1518,7 @@ class SmallCalendar(unittest.TestCase):
         self.assertEqual(len(got), 1)                # 曜日の行では何も起きない
 
 
-class WindowSizes(unittest.TestCase):
+class WindowSizes(QtCase):
     """窓の大きさを覚えて、次に開いたときに戻すこと。"""
 
     def setUp(self):
@@ -1650,7 +1672,7 @@ class WindowSizes(unittest.TestCase):
         self.assertIn("main", self.vault.prefs.window_sizes)
 
 
-class TrayHint(unittest.TestCase):
+class TrayHint(QtCase):
     def test_the_notice_is_shown_only_once_ever(self):
         from koyomi.ui.main_window import MainWindow
         vault = sample_vault()
@@ -1679,7 +1701,7 @@ class TrayHint(unittest.TestCase):
         self.assertTrue(again.prefs.tray_hint_shown)
 
 
-class SingleInstance(unittest.TestCase):
+class SingleInstance(QtCase):
     """二つ目の起動を弾いて、一つ目に知らせること。"""
 
     NAME = "KoyomiSoloTest"
@@ -1734,7 +1756,7 @@ class SingleInstance(unittest.TestCase):
         self.assertFalse(tell_ready(self.NAME, 424243))
 
 
-class Appearance(unittest.TestCase):
+class Appearance(QtCase):
     def test_every_palette_builds(self):
         catalogue = theme.catalog()
         self.assertEqual(len(catalogue), 27)
@@ -1751,7 +1773,7 @@ class Appearance(unittest.TestCase):
             self.assertTrue(theme.group_tint(key).startswith("#"))
 
 
-class Language(unittest.TestCase):
+class Language(QtCase):
     def tearDown(self):
         i18n.set_language("ja")
 
